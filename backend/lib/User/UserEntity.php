@@ -17,6 +17,7 @@ class UserEntity
     public int $postsCount = 0;
     public int $createdAt; 
 
+    public string $currentAvatarUrl = '';
     public array $education = [];
     public array $workExperience = [];
     public array $profileImages = [];

@@ -106,6 +106,16 @@ class UserState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void incrementPostsCount() {
+    _postsCount++;
+    notifyListeners();
+  }
+
+  void decrementPostsCount() {
+    if (_postsCount > 0) _postsCount--;
+    notifyListeners();
+  }
+
   /// Update single field (Selector optimized)
   void updateField<T>(T value, void Function(UserState state, T val) updater) {
     updater(this, value);

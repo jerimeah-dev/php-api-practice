@@ -19,10 +19,14 @@ class PostRepository {
         if (imageUrls != null) 'imageUrls': jsonEncode(imageUrls),
       });
 
-  Future<Map<String, dynamic>> getById(String id) =>
+  Future<Map<String, dynamic>> getById({
+    required String id,
+    required String userId,
+  }) =>
       ApiClient.instance.post('/api.php', {
         'method': 'post.getById',
         'id': id,
+        'userId': userId,
       });
 
   Future<Map<String, dynamic>> updateById({
@@ -51,12 +55,27 @@ class PostRepository {
         'userId': userId,
       });
 
-  Future<Map<String, dynamic>> listAll() =>
-      ApiClient.instance.post('/api.php', {'method': 'post.listAll'});
+  Future<Map<String, dynamic>> listAll({required String userId}) =>
+      ApiClient.instance.post('/api.php', {
+        'method': 'post.listAll',
+        'userId': userId,
+      });
 
   Future<Map<String, dynamic>> listByUser(String userId) =>
       ApiClient.instance.post('/api.php', {
         'method': 'post.listByUser',
         'userId': userId,
+      });
+
+  Future<Map<String, dynamic>> toggleReaction({
+    required String postId,
+    required String userId,
+    required String type,
+  }) =>
+      ApiClient.instance.post('/api.php', {
+        'method': 'reaction.toggle',
+        'postId': postId,
+        'userId': userId,
+        'type': type,
       });
 }

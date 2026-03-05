@@ -58,7 +58,7 @@ class _ProfileView extends StatelessWidget {
           children: [
             _AvatarHeader(user: user),
             const SizedBox(height: 24),
-            _StatsRow(user: user),
+            const _StatsRow(),
             const SizedBox(height: 24),
             _AboutSection(user: user),
             const SizedBox(height: 24),
@@ -204,17 +204,22 @@ class _AvatarHeader extends StatelessWidget {
 // ─── Stats row ───────────────────────────────────────────────────────────────
 
 class _StatsRow extends StatelessWidget {
-  const _StatsRow({required this.user});
-  final UserModel user;
+  const _StatsRow();
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _StatTile(label: 'Posts', value: user.postsCount),
-        _StatTile(label: 'Followers', value: user.followersCount),
-        _StatTile(label: 'Following', value: user.followingCount),
-      ],
+    return Selector<UserState, (int, int, int)>(
+      selector: (_, s) => (s.postsCount, s.followersCount, s.followingCount),
+      builder: (_, counts, __) {
+        final (posts, followers, following) = counts;
+        return Row(
+          children: [
+            _StatTile(label: 'Posts', value: posts),
+            _StatTile(label: 'Followers', value: followers),
+            _StatTile(label: 'Following', value: following),
+          ],
+        );
+      },
     );
   }
 }

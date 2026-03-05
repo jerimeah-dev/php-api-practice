@@ -9,6 +9,8 @@ import 'package:frontend/services/post/post.services.dart';
 import 'package:frontend/services/user/user.services.dart';
 import 'package:frontend/states/post/post.state.dart';
 import 'package:frontend/states/user/user.state.dart';
+import 'package:frontend/widgets/post_author_avatar.dart';
+import 'package:frontend/widgets/reaction_bar.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -135,7 +137,7 @@ class _PostCard extends StatelessWidget {
             // Author row
             Row(
               children: [
-                _InitialsAvatar(name: post.authorName, size: 36),
+                PostAuthorAvatar(name: post.authorName, avatarUrl: post.authorAvatarUrl, size: 36),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -192,6 +194,8 @@ class _PostCard extends StatelessWidget {
             ],
 
             const SizedBox(height: 10),
+            CompactReactionBar(post: post),
+            const SizedBox(height: 6),
 
             // Read more
             Text(
@@ -342,43 +346,3 @@ class _PostImageGrid extends StatelessWidget {
   }
 }
 
-class _InitialsAvatar extends StatelessWidget {
-  const _InitialsAvatar({required this.name, required this.size});
-  final String name;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final initial = name.isNotEmpty ? name.trim()[0].toUpperCase() : '?';
-    final color = _colorFromName(name);
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      alignment: Alignment.center,
-      child: Text(
-        initial,
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: size * 0.4,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-
-  Color _colorFromName(String name) {
-    const colors = [
-      Color(0xFF1A73E8),
-      Color(0xFF34A853),
-      Color(0xFFEA4335),
-      Color(0xFFFBBC05),
-      Color(0xFF9C27B0),
-      Color(0xFF00BCD4),
-      Color(0xFFFF5722),
-      Color(0xFF607D8B),
-    ];
-    if (name.isEmpty) return colors[0];
-    return colors[name.codeUnitAt(0) % colors.length];
-  }
-}

@@ -35,7 +35,7 @@ class PostController extends Controller
 
     public function listAll(array $input)
     {
-        return $this->json($this->service->listAll());
+        return $this->json($this->service->listAll($input));
     }
 
     public function listByUser(array $input)

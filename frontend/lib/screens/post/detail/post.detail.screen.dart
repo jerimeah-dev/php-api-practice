@@ -5,6 +5,8 @@ import 'package:frontend/screens/post/form/post.form.screen.dart';
 import 'package:frontend/services/post/post.services.dart';
 import 'package:frontend/states/post/post.state.dart';
 import 'package:frontend/states/user/user.state.dart';
+import 'package:frontend/widgets/post_author_avatar.dart';
+import 'package:frontend/widgets/reaction_bar.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -75,7 +77,7 @@ class _PostDetailView extends StatelessWidget {
                   // Author row
                   Row(
                     children: [
-                      _AuthorAvatar(name: post.authorName, size: 40),
+                      PostAuthorAvatar(name: post.authorName, avatarUrl: post.authorAvatarUrl, size: 40),
                       const SizedBox(width: 12),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -131,6 +133,12 @@ class _PostDetailView extends StatelessWidget {
                           fontStyle: FontStyle.italic),
                     ),
                   ],
+
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  FullReactionBar(post: post),
+                  const SizedBox(height: 8),
                 ],
               ),
             ),
@@ -323,47 +331,3 @@ class _FullscreenGalleryState extends State<_FullscreenGallery> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Shared widgets
-// ---------------------------------------------------------------------------
-
-class _AuthorAvatar extends StatelessWidget {
-  const _AuthorAvatar({required this.name, required this.size});
-  final String name;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final initial = name.isNotEmpty ? name.trim()[0].toUpperCase() : '?';
-    final color = _colorFromName(name);
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      alignment: Alignment.center,
-      child: Text(
-        initial,
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: size * 0.4,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-
-  Color _colorFromName(String name) {
-    const colors = [
-      Color(0xFF1A73E8),
-      Color(0xFF34A853),
-      Color(0xFFEA4335),
-      Color(0xFFFBBC05),
-      Color(0xFF9C27B0),
-      Color(0xFF00BCD4),
-      Color(0xFFFF5722),
-      Color(0xFF607D8B),
-    ];
-    if (name.isEmpty) return colors[0];
-    return colors[name.codeUnitAt(0) % colors.length];
-  }
-}

@@ -14,7 +14,7 @@ class PostService {
 
   Future<void> loadAll() async {
     _state.setLoading(true);
-    final res = await _repo.listAll();
+    final res = await _repo.listAll(userId: _userState.id);
     if (res['status'] == 'success') {
       final list = (res['data']['posts'] as List? ?? [])
           .map((e) => _parsePost({'status': 'success', 'data': {'post': e}}))
@@ -40,7 +40,10 @@ class PostService {
       imageUrls: imageUrls,
     );
     final post = _parsePost(res);
-    if (post != null) _state.addPost(post);
+    if (post != null) {
+      _state.addPost(post);
+      _userState.incrementPostsCount();
+    }
     return post;
   }
 
@@ -66,15 +69,44 @@ class PostService {
     final res = await _repo.deleteById(id: id, userId: _userState.id);
     if (res['status'] == 'success') {
       _state.removePost(id);
+      _userState.decrementPostsCount();
       return true;
     }
     return false;
+  }
+
+  Future<void> toggleReaction({
+    required String postId,
+    required String type,
+  }) async {
+    final res = await _repo.toggleReaction(
+      postId: postId,
+      userId: _userState.id,
+      type: type,
+    );
+    if (res['status'] != 'success') return;
+
+    final data = res['data'] as Map<String, dynamic>;
+    final counts = (data['reactionCounts'] as Map? ?? {}).map(
+      (k, v) => MapEntry(k.toString(), (v as num).toInt()),
+    );
+    final userReaction = data['userReaction'] as String?;
+
+    final post = _state.posts.where((p) => p.id == postId).firstOrNull;
+    if (post != null) {
+      _state.updatePost(
+        post.copyWithReactions(reactionCounts: counts, userReaction: userReaction),
+      );
+    }
   }
 
   PostModel? _parsePost(Map<String, dynamic> res) {
     if (res['status'] != 'success' || res['data']?['post'] == null) return null;
     final map = Map<String, dynamic>.from(res['data']['post']);
     map['imageUrls'] = _decodeStringList(map['imageUrls']);
+    // PHP encodes an empty array as [] (JSON array), not {} — normalise to Map
+    final rc = map['reactionCounts'];
+    if (rc is List) map['reactionCounts'] = <String, dynamic>{};
     return PostModel.fromJson(map);
   }
 

@@ -26,8 +26,14 @@ class UserRepository
             createdAt INTEGER NOT NULL,
             education TEXT NOT NULL DEFAULT '[]',
             workExperience TEXT NOT NULL DEFAULT '[]',
-            profileImages TEXT NOT NULL DEFAULT '[]'
+            profileImages TEXT NOT NULL DEFAULT '[]',
+            currentAvatarUrl TEXT NOT NULL DEFAULT ''
         )");
+        try {
+            $this->db->exec("ALTER TABLE users ADD COLUMN currentAvatarUrl TEXT NOT NULL DEFAULT ''");
+        } catch (\Throwable $e) {
+            // Column already exists
+        }
     }
 
     // ✅ CREATE
@@ -92,9 +98,10 @@ class UserRepository
     public function updateById(UserEntity $user): bool
     {
         $stmt = $this->db->prepare(
-            "UPDATE users SET 
-            email = ?, password = ?, name = ?, birthday = ?, bio = ?, websiteUrl = ?, 
-            followersCount = ?, followingCount = ?, postsCount = ?, education = ?, workExperience = ?, profileImages = ? 
+            "UPDATE users SET
+            email = ?, password = ?, name = ?, birthday = ?, bio = ?, websiteUrl = ?,
+            followersCount = ?, followingCount = ?, postsCount = ?, education = ?, workExperience = ?, profileImages = ?,
+            currentAvatarUrl = ?
             WHERE id = ?"
         );
 
@@ -111,8 +118,29 @@ class UserRepository
             json_encode($user->education),
             json_encode($user->workExperience),
             json_encode($user->profileImages),
+            $user->currentAvatarUrl,
             $user->id
         ]);
+    }
+
+    // ✅ UPDATE CURRENT AVATAR URL
+    public function updateCurrentAvatarUrl(string $userId, string $url): void
+    {
+        $stmt = $this->db->prepare("UPDATE users SET currentAvatarUrl = ? WHERE id = ?");
+        $stmt->execute([$url, $userId]);
+    }
+
+    // ✅ INCREMENT / DECREMENT POSTS COUNT
+    public function incrementPostsCount(string $userId): void
+    {
+        $stmt = $this->db->prepare("UPDATE users SET postsCount = postsCount + 1 WHERE id = ?");
+        $stmt->execute([$userId]);
+    }
+
+    public function decrementPostsCount(string $userId): void
+    {
+        $stmt = $this->db->prepare("UPDATE users SET postsCount = MAX(0, postsCount - 1) WHERE id = ?");
+        $stmt->execute([$userId]);
     }
 
     // ✅ DELETE BY ID

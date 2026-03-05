@@ -135,6 +135,10 @@ class UserService
             ? (is_string($input['profileImages']) ? json_decode($input['profileImages'], true) ?? [] : $input['profileImages'])
             : json_decode($existing['profileImages'] ?? '[]', true) ?? [];
 
+        // Sync currentAvatarUrl from the image marked isCurrent
+        $currentImgs = array_values(array_filter($entity->profileImages, fn($img) => ($img['isCurrent'] ?? false) === true));
+        $entity->currentAvatarUrl = !empty($currentImgs) ? ($currentImgs[0]['url'] ?? '') : ($existing['currentAvatarUrl'] ?? '');
+
         $this->repo->updateById($entity);
         $row = $this->repo->findById($id);
         unset($row['password']);

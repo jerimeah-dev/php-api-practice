@@ -52,7 +52,7 @@ class PostRepository
     public function findById(string $id): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT p.*, COALESCE(u.name, '') as authorName
+            "SELECT p.*, COALESCE(u.name, '') as authorName, COALESCE(u.currentAvatarUrl, '') as authorAvatarUrl
              FROM posts p
              LEFT JOIN users u ON p.userId = u.id
              WHERE p.id = ?"
@@ -91,7 +91,7 @@ class PostRepository
     public function getAll(): array
     {
         $stmt = $this->db->query(
-            "SELECT p.*, COALESCE(u.name, '') as authorName
+            "SELECT p.*, COALESCE(u.name, '') as authorName, COALESCE(u.currentAvatarUrl, '') as authorAvatarUrl
              FROM posts p
              LEFT JOIN users u ON p.userId = u.id
              ORDER BY p.createdAt DESC"
@@ -102,7 +102,7 @@ class PostRepository
     public function getAllByUserId(string $userId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT p.*, COALESCE(u.name, '') as authorName
+            "SELECT p.*, COALESCE(u.name, '') as authorName, COALESCE(u.currentAvatarUrl, '') as authorAvatarUrl
              FROM posts p
              LEFT JOIN users u ON p.userId = u.id
              WHERE p.userId = ?
