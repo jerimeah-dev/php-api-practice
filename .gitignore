@@ -1,0 +1,20 @@
+# SQLite database
+backend/database/*.db
+backend/database/*.db-shm
+backend/database/*.db-wal
+
+# PHP vendor
+backend/vendor/
+
+# Environment / secrets
+.env
+*.env
+
+# macOS
+.DS_Store
+
+# Flutter build artifacts
+frontend/build/
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
