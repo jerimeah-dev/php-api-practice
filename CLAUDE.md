@@ -59,12 +59,15 @@ CREATE TABLE IF NOT EXISTS users (
     avatarUrl      TEXT    NOT NULL DEFAULT '',
     -- profileImages: full history, newest-first. Each entry: {"url":"...","createdAt":unix}
     profileImages  TEXT    NOT NULL DEFAULT '[]',
+    -- coverImages: full history, newest-first. Each entry: {"url":"...","createdAt":unix}
+    coverImages    TEXT    NOT NULL DEFAULT '[]',
     createdAt      INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS posts (
     id         TEXT    PRIMARY KEY,
     userId     TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title      TEXT    NOT NULL DEFAULT '',
     content    TEXT    NOT NULL,
     -- imageUrls: JSON array of URL strings. [] = no images.
     imageUrls  TEXT    NOT NULL DEFAULT '[]',
@@ -97,6 +100,7 @@ CREATE TABLE IF NOT EXISTS reactions (
 ```
 
 **Migration pattern** — add columns to existing tables safely:
+
 ```php
 try {
     $db->exec("ALTER TABLE posts ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0");
@@ -187,15 +191,16 @@ Request → Controller → Service → Repository → Database
             (HTTP)     (Logic)     (SQL)        (PDO)
 ```
 
-| Principle | Application |
-|---|---|
-| **Loose coupling** | Swap a Repository without touching the Service. |
-| **Code reuse** | `Core\Repository` provides PDO helpers — zero boilerplate in domain repos. |
-| **Enforced contracts** | Abstract base classes guarantee structure across all domains. |
-| **Single responsibility** | Entity = data. Repository = SQL. Service = logic. Controller = HTTP. |
-| **Testability** | Inject a test PDO into `Database`; mock repositories in unit tests. |
+| Principle                 | Application                                                                |
+| ------------------------- | -------------------------------------------------------------------------- |
+| **Loose coupling**        | Swap a Repository without touching the Service.                            |
+| **Code reuse**            | `Core\Repository` provides PDO helpers — zero boilerplate in domain repos. |
+| **Enforced contracts**    | Abstract base classes guarantee structure across all domains.              |
+| **Single responsibility** | Entity = data. Repository = SQL. Service = logic. Controller = HTTP.       |
+| **Testability**           | Inject a test PDO into `Database`; mock repositories in unit tests.        |
 
 **Hard rules:**
+
 - A layer MUST NOT skip levels. Controller → Service → Repository. Never Controller → Repository.
 - All domain repositories MUST extend `Core\Repository`.
 - All domain controllers MUST extend `Core\Controller`.
@@ -221,6 +226,7 @@ class PostEntity
 ```
 
 Rules:
+
 - Public typed properties only. No methods, no validation, no logic.
 - Array properties hold decoded PHP arrays. Repository JSON-encodes on write.
 
@@ -250,6 +256,7 @@ class PostRepository extends Repository
 ```
 
 Rules:
+
 - Extends `Core\Repository`. Use `$this->execute()`, `$this->fetch()`, `$this->fetchAll()`.
 - Returns raw types: `?array`, `array`, `bool`, `int`. Never a JSend response.
 - JOINs with `users` table are done here when authorName/authorAvatarUrl are needed.
@@ -305,6 +312,7 @@ class PostService
 ```
 
 Rules:
+
 - ALL validation and input sanitization here.
 - ALL business logic: ID generation, password hashing, merge-on-update, `updatedAt = time()`.
 - Build Entity here; pass to Repository.
@@ -337,6 +345,7 @@ class PostController extends Controller
 ```
 
 Rules:
+
 - Each method is ONE line: call service, wrap in `$this->json()`.
 - No validation, no conditionals, no business logic.
 - Never call `$this->service->repo` — always call a service method.
@@ -378,25 +387,26 @@ All requests: `POST /api.php` with JSON body `{"method": "domain.action", ...par
 
 ### Endpoints
 
-| Method | Params | Success `data` shape |
-|---|---|---|
-| `user.register` | email, password, name? | `{"user": {...}}` |
-| `user.login` | email, password | `{"user": {...}}` |
-| `user.findById` | id | `{"user": {...}}` |
-| `user.updateById` | id, name?, profileImages? | `{"user": {...}}` |
-| `user.deleteById` | id | `{"message": "User deleted"}` |
-| `post.list` | viewerId, limit, offset, authorId? | `{"posts": [...], "total": 42, "hasMore": true}` |
-| `post.getById` | id, viewerId | `{"post": {...}}` |
-| `post.create` | userId, content, imageUrls? | `{"post": {...}}` |
-| `post.updateById` | id, content?, imageUrls? | `{"post": {...}}` |
-| `post.deleteById` | id | `{"message": "Post deleted"}` |
-| `comment.list` | postId, viewerId, limit, offset | `{"comments": [...], "hasMore": false}` |
-| `comment.create` | userId, postId, content, parentId?, imageUrls? | `{"comment": {...}}` |
-| `comment.updateById` | id, content?, imageUrls? | `{"comment": {...}}` |
-| `comment.deleteById` | id | `{"message": "Comment deleted"}` |
-| `reaction.toggle` | userId, targetType, targetId, type | `{"action": "added"/"removed"/"changed", "reactionCounts": {...}, "userReaction": "Like"/null}` |
+| Method               | Params                                         | Success `data` shape                                                                            |
+| -------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `user.register`      | email, password, name?                         | `{"user": {...}}`                                                                               |
+| `user.login`         | email, password                                | `{"user": {...}}`                                                                               |
+| `user.findById`      | id                                             | `{"user": {...}}`                                                                               |
+| `user.updateById`    | id, name?, profileImages?, coverImages?        | `{"user": {...}}`                                                                               |
+| `user.deleteById`    | id                                             | `{"message": "User deleted"}`                                                                   |
+| `post.list`          | viewerId, limit, offset, authorId?             | `{"posts": [...], "total": 42, "hasMore": true}`                                                |
+| `post.getById`       | id, viewerId                                   | `{"post": {...}}`                                                                               |
+| `post.create`        | userId, content, title?, imageUrls?            | `{"post": {...}}`                                                                               |
+| `post.updateById`    | id, content?, title?, imageUrls?               | `{"post": {...}}`                                                                               |
+| `post.deleteById`    | id                                             | `{"message": "Post deleted"}`                                                                   |
+| `comment.list`       | postId, viewerId, limit, offset                | `{"comments": [...], "hasMore": false}`                                                         |
+| `comment.create`     | userId, postId, content, parentId?, imageUrls? | `{"comment": {...}}`                                                                            |
+| `comment.updateById` | id, content?, imageUrls?                       | `{"comment": {...}}`                                                                            |
+| `comment.deleteById` | id                                             | `{"message": "Comment deleted"}`                                                                |
+| `reaction.toggle`    | userId, targetType, targetId, type             | `{"action": "added"/"removed"/"changed", "reactionCounts": {...}, "userReaction": "Like"/null}` |
 
 **Param notes:**
+
 - `viewerId` — logged-in user's ID. Backend uses it to compute `userReaction` on each item. Pass `""` for unauthenticated (userReaction will be `null`).
 - `authorId` (optional on `post.list`) — filter to a specific user's posts. Omit for global feed.
 - `parentId` (optional on `comment.create`) — creates a reply if provided; top-level comment if omitted/null.
@@ -404,16 +414,20 @@ All requests: `POST /api.php` with JSON body `{"method": "domain.action", ...par
 - `profileImages` — JSON-encoded string of full replacement array.
 
 ### Reaction types (exact strings, case-sensitive)
+
 `Like`, `Love`, `Haha`, `Wow`, `Sad`, `Angry`
 
 ### Pagination
+
 ```json
 { "status": "success", "data": { "posts": [...], "total": 42, "hasMore": true } }
 ```
+
 - `total`: total matching rows.
 - `hasMore`: `true` when `offset + len(page) < total`.
 
 ### Comment / Reply rules
+
 - `parentId = null` → top-level comment.
 - `parentId = <commentId>` → reply to that comment.
 - Backend **rejects** if target parent already has a non-null `parentId` (no 3rd-level): returns `fail {"parentId": "Replies cannot be nested"}`.
@@ -422,6 +436,7 @@ All requests: `POST /api.php` with JSON body `{"method": "domain.action", ...par
 ### Data Shapes
 
 **User** (password never returned):
+
 ```json
 {
   "id": "abc123",
@@ -432,20 +447,28 @@ All requests: `POST /api.php` with JSON body `{"method": "domain.action", ...par
     { "url": "https://img-new.jpg", "createdAt": 1709123456 },
     { "url": "https://img-old.jpg", "createdAt": 1700000000 }
   ],
+  "coverImages": [
+    { "url": "https://cover.jpg", "createdAt": 1709123456 }
+  ],
   "createdAt": 1700000000
 }
 ```
+
 - `profileImages`: full history, newest first. Frontend manages ordering.
+- `coverImages`: full history, newest first. `coverImages[0]` is the active cover photo.
 - `avatarUrl`: always `profileImages[0].url`, synced by `UserService` on every update. Never set directly.
-- `profileImages` on `user.updateById`: frontend sends the **complete replacement array** (JSON-encoded). Backend stores it as-is and syncs `avatarUrl`.
+- Cover display: `coverImages[0].url` → fallback to `avatarUrl` → fallback to placeholder color.
+- `profileImages`/`coverImages` on `user.updateById`: frontend sends the **complete replacement array** (JSON-encoded). Backend stores as-is and syncs `avatarUrl`.
 
 **Post** (includes denormalized author):
+
 ```json
 {
   "id": "abc123",
   "userId": "user1",
   "authorName": "Alice",
   "authorAvatarUrl": "https://...",
+  "title": "Optional title",
   "content": "Hello world",
   "imageUrls": ["https://img1.jpg", "https://img2.jpg"],
   "reactionCounts": { "Like": 3, "Love": 1 },
@@ -456,6 +479,7 @@ All requests: `POST /api.php` with JSON body `{"method": "domain.action", ...par
 ```
 
 **Comment** (includes denormalized author):
+
 ```json
 {
   "id": "cmt1",
@@ -480,6 +504,7 @@ Backend JOINs `users` on all post/comment queries to include `authorName` and `a
 PHP `json_encode([])` produces `[]` (JSON array), not `{}` (JSON object). When there are no reactions the backend returns `"reactionCounts": []`. Dart parses `[]` as `List`, not `Map`.
 
 **Frontend Service MUST normalize before `Model.fromJson`:**
+
 ```dart
 final rc = map['reactionCounts'];
 if (rc == null || rc is List) map['reactionCounts'] = <String, dynamic>{};
@@ -487,12 +512,13 @@ if (rc == null || rc is List) map['reactionCounts'] = <String, dynamic>{};
 
 ### Array columns — wire format
 
-| Direction | What happens |
-|---|---|
+| Direction              | What happens                                                                                                                                                                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Backend → Frontend** | Service decodes JSON string columns (`json_decode($row['imageUrls'], true) ?? []`) before building response. `json_encode()` of the full response turns PHP arrays into proper JSON arrays. Frontend receives `[...]` not `"[...]"`. |
-| **Frontend → Backend** | Repository sends JSON-encoded string: `'imageUrls': jsonEncode(urls)`. Backend Service decodes: `json_decode($input['imageUrls'] ?? '[]', true) ?? []`. |
+| **Frontend → Backend** | Repository sends JSON-encoded string: `'imageUrls': jsonEncode(urls)`. Backend Service decodes: `json_decode($input['imageUrls'] ?? '[]', true) ?? []`.                                                                              |
 
 Frontend `_decodeList` is a **defensive type-cast helper**, not a JSON string decoder:
+
 ```dart
 /// Converts dynamic (List or null) → List<Map<String,dynamic>>.
 /// Handles String as a safety net in case backend forgot to decode.
@@ -508,6 +534,7 @@ List<Map<String, dynamic>> _decodeList(dynamic value) {
 ```
 
 For `imageUrls` (List<String>, not List<Map>), cast directly in `fromJson`:
+
 ```dart
 imageUrls: (json['imageUrls'] as List? ?? []).cast<String>(),
 ```
@@ -562,16 +589,17 @@ frontend/lib/
 
 ### Screens & Navigation
 
-| Screen | Route | Class |
-|---|---|---|
-| Home (global feed) | `/` | `HomeScreen` |
-| Login | `/login` | `LoginScreen` |
-| Register | `/register` | `RegisterScreen` |
-| Profile | `/profile/:id` | `ProfileScreen` |
-| Post detail | `/post/:id` | `PostDetailScreen` |
-| Post create/edit | `/post/form` | `PostFormScreen` |
+| Screen             | Route          | Class              |
+| ------------------ | -------------- | ------------------ |
+| Home (global feed) | `/`            | `HomeScreen`       |
+| Login              | `/login`       | `LoginScreen`      |
+| Register           | `/register`    | `RegisterScreen`   |
+| Profile            | `/profile/:id` | `ProfileScreen`    |
+| Post detail        | `/post/:id`    | `PostDetailScreen` |
+| Post create/edit   | `/post/form`   | `PostFormScreen`   |
 
 **Navigation flow:**
+
 - App start → `UserState.id.isEmpty` → redirect to `/login`, else `/`.
 - Home: FAB creates post → `PostFormScreen.push`. Tap post card → `PostDetailScreen.push`. Tap author → `ProfileScreen.push`.
 - PostDetail: shows post body + image gallery + reaction bar + paginated comments with inline replies.
@@ -579,6 +607,7 @@ frontend/lib/
 - Login/Register use `NoTransitionPage`. All others use standard `builder`.
 
 **Static screen members (required on every screen):**
+
 ```dart
 class HomeScreen extends StatelessWidget {
   static const String routeName = '/';
@@ -586,6 +615,7 @@ class HomeScreen extends StatelessWidget {
   static void push(BuildContext ctx) => ctx.push(routeName);
 }
 ```
+
 Navigate ONLY via `ScreenName.go(ctx)` or `ScreenName.push(ctx)` — never with raw strings.
 
 ---
@@ -608,6 +638,7 @@ Navigate ONLY via `ScreenName.go(ctx)` or `ScreenName.push(ctx)` — never with 
 ### Frontend Models
 
 #### UserModel
+
 ```dart
 class UserModel {
   final String id;
@@ -615,6 +646,7 @@ class UserModel {
   final String name;
   final String avatarUrl;
   final List<ProfileImageModel> profileImages;  // full history, newest first
+  final List<ProfileImageModel> coverImages;    // full history, newest first
   final DateTime createdAt;
 }
 
@@ -625,12 +657,14 @@ class ProfileImageModel {
 ```
 
 #### PostModel
+
 ```dart
 class PostModel {
   final String id;
   final String userId;
   final String authorName;
   final String authorAvatarUrl;
+  final String title;           // optional, may be empty
   final String content;
   final List<String> imageUrls;
   final Map<String, int> reactionCounts;  // e.g. {"Like": 3, "Love": 1}
@@ -641,6 +675,7 @@ class PostModel {
 ```
 
 #### CommentModel
+
 ```dart
 class CommentModel {
   final String id;
@@ -659,6 +694,7 @@ class CommentModel {
 ```
 
 Model rules:
+
 - `final` fields — immutable. `const` constructor.
 - Only `fromJson` factory and `toJson` — no other logic.
 - Timestamps: Unix seconds from backend → `DateTime.fromMillisecondsSinceEpoch(ts * 1000)`.
@@ -698,6 +734,7 @@ Rules: Repositories NEVER import Dio. All config here only.
 #### Repositories — raw API calls only
 
 Rules:
+
 - ONLY build request body + call `ApiClient.instance.post('/api.php', {...})`.
 - Named parameters. `if (x != null) 'key': x` spread for optional fields.
 - JSON-encode array fields: `'imageUrls': jsonEncode(urls)`.
@@ -708,12 +745,14 @@ Rules:
 #### Services — logic, state updates, response parsing
 
 Rules:
+
 - Check `res['status'] == 'success'` before reading data.
 - Read from `res['data']['key']` — never top-level keys.
 - Only layer that calls state mutation methods.
 - Wrap with `_state.setLoading(true/false)`.
 
 **Parsing helpers (define in each Service that needs them):**
+
 ```dart
 // For List<Map> columns (profileImages)
 List<Map<String, dynamic>> _decodeList(dynamic value) {
@@ -745,6 +784,7 @@ UserModel _parseUser(Map<String, dynamic> raw) {
 ```
 
 **Optimistic UI for reactions:**
+
 ```dart
 Future<void> toggleReaction({required String targetType, required String targetId, required String type}) async {
   final prev = _state.getReactionSnapshot(targetId);
@@ -766,12 +806,14 @@ Future<void> toggleReaction({required String targetType, required String targetI
 #### States — values only
 
 Rules:
+
 - No logic, no API calls, no model parsing.
 - Every field: private `_` prefix + public getter.
 - Setter methods hydrate ALL individual fields from model.
 - `notifyListeners()` in EVERY setter without exception.
 
 **Selector for list state:** when items in a list update (e.g. reaction count on one post), update the specific item and replace the list reference so Selector detects the change:
+
 ```dart
 void updatePost(PostModel updated) {
   _posts = _posts.map((p) => p.id == updated.id ? updated : p).toList();
@@ -785,12 +827,12 @@ void updatePost(PostModel updated) {
 
 #### Post image grid (`PostImageGrid` widget)
 
-| Count | Layout |
-|---|---|
-| 1 | Full-width, fixed height (260px) |
-| 2 | Two equal columns side by side |
-| 3 | Top: full-width; bottom row: two equal columns |
-| 4+ | 2×2 grid; bottom-right cell shows `+N` overlay for remaining count |
+| Count | Layout                                                             |
+| ----- | ------------------------------------------------------------------ |
+| 1     | Full-width, fixed height (260px)                                   |
+| 2     | Two equal columns side by side                                     |
+| 3     | Top: full-width; bottom row: two equal columns                     |
+| 4+    | 2×2 grid; bottom-right cell shows `+N` overlay for remaining count |
 
 Tap any image → push fullscreen `PageView` viewer with `InteractiveViewer` (pinch to zoom).
 
@@ -805,57 +847,81 @@ Tap any image → push fullscreen `PageView` viewer with `InteractiveViewer` (pi
 #### Comments + Replies (on PostDetailScreen)
 
 - Comments section lives at the bottom of `PostDetailScreen`, below the post body.
-- `comment.list` returns a flat list. Frontend groups:
+- `comment.list` returns a **flat paginated** list (5 per page). A "Load more comments" button appears when `hasMore = true`.
+- Frontend groups:
   ```dart
   final topLevel = comments.where((c) => c.parentId == null).toList();
   List<CommentModel> repliesFor(String commentId) =>
     comments.where((c) => c.parentId == commentId).toList();
   ```
-- Replies are visually indented (16px left padding + vertical line or avatar offset).
-- Each comment row:
+- Replies are visually indented (44px left padding).
+- Each comment/reply row:
   - Author avatar + name + timestamp
-  - Content text
+  - Content text (or inline edit field if owner is editing)
   - Image grid (if `imageUrls` non-empty)
   - `CompactReactionBar`
-  - "Reply" text button → shows inline reply input field
-- Reply input: appears below the target comment (not at the bottom of the screen). On submit: calls `comment.create` with `parentId` set. On success: inserts the new reply into the local flat list and regroups.
+  - "Reply" text button (top-level only) → shows inline reply input field
+  - Edit icon + Delete icon (visible only if `comment.userId == UserState.instance.id`)
+- Edit flow: tapping edit icon shows a `TextField` inside the bubble with Save/Cancel buttons. On Save: calls `CommentService.updateById(id, content)` → updates `CommentState`.
+- Reply input: appears below the target comment (not at the bottom of the screen).
 - Both comments and replies can be reacted to (same `reaction.toggle` with `targetType: 'comment'`).
 
 #### Profile screen sections
 
-`ProfileScreen` has two tabs:
-1. **Posts** — `ListView` with infinite scroll. Uses `post.list` with `authorId = profileUserId`. Same `PostCard` as home feed.
+`ProfileScreen` has two tabs. Layout: `NestedScrollView` with a sliver header (cover+avatar+info+TabBar) and `TabBarView` body. Top-level `RefreshIndicator` handles pull-to-refresh for both user details and posts.
+
+1. **Posts** — `ListView` with infinite scroll via `NotificationListener<ScrollNotification>`. Posts are stored in `PostState` via `PostState.upsertPosts()` so reactions update immediately. Profile tracks only `_postIds: List<String>`; each card uses `Selector<PostState, PostModel?>` by ID.
 2. **Photos** — `GridView` (3 columns) of all `profileImages` entries. Tap → fullscreen viewer. Newest first.
 
-Own profile (when `profileUserId == UserState.instance.id`): shows Edit Profile button in AppBar.
+Own profile (when `profileUserId == UserState.instance.id`): shows Edit Profile button.
+
+**User details caching:** `UserService` has an in-memory `_cache: Map<String, UserModel>`. On first visit, fetch and cache. On revisit, show cached data immediately (no spinner). Pull-to-refresh calls `_loadUser(forceRefresh: true)` which bypasses cache.
+
+```dart
+UserModel? getCached(String id) => _cache[id];
+Future<UserModel?> fetchAndCache(String id) async { ... }
+```
+
+**Profile posts + instant reactions:** `PostService.fetchPageAndUpsert()` fetches a page and calls `PostState.upsertPosts()`. Profile's `_ProfilePostCard` uses `Selector<PostState, PostModel?>` so reaction updates are immediate without a full list rebuild.
 
 ---
 
 ### Pagination — Infinite Scroll
 
-```dart
-_scrollController.addListener(() {
-  final pos = _scrollController.position;
-  if (pos.pixels >= pos.maxScrollExtent * 0.8) {
-    service.loadNextPage();  // no-op if loading or !hasMore
-  }
-});
-```
+- **Page size: 5** for both posts and comments.
+- Home feed: `ScrollController.addListener` at 80% threshold → `PostService.loadNextPage()`.
+- Profile posts: `NotificationListener<ScrollNotification>` at 80% → `_loadPosts()`.
+- Comments: "Load more comments" button at bottom of `_CommentsSection` when `hasMore = true`.
 
 **State accumulation:**
+
 ```dart
-void appendPosts(List<PostModel> page, bool hasMore) {
+void appendPosts(List<PostModel> page, {required int total, required bool hasMore}) {
   _posts = [..._posts, ...page];
+  _total = total;
   _hasMore = hasMore;
+  debugPrint('[PostState] posts: ${_posts.length} (total: $_total, hasMore: $_hasMore)');
   notifyListeners();
 }
 ```
 
+**debugPrint:** Every state that manages a list must `debugPrint` the count on every list mutation (set, append, upsert, add, remove).
+
 **Pull-to-refresh:**
+
 ```dart
 Future<void> refresh() async {
   _state.clearPosts();       // resets list + offset to 0
   await _loadPage(offset: 0);
+}
+```
+
+**PostState.upsertPosts:** Merges a page into `PostState` without clearing. Existing posts by ID are updated in-place; new ones are appended. Used by profile screen so reactions stay reactive.
+
+```dart
+void upsertPosts(List<PostModel> page) {
+  // update existing by ID, append new ones
+  notifyListeners();
 }
 ```
 
@@ -925,6 +991,7 @@ Future<void> refresh() async {
 ## Verification Checklist
 
 ### New backend domain
+
 - [ ] Controller, Service, Repository, Entity created
 - [ ] Repository extends `Core\Repository`; uses `$this->fetch()` / `$this->execute()` / `$this->fetchAll()`
 - [ ] Controller methods are one-liners — `$this->json($this->service->method($input))`
@@ -936,6 +1003,7 @@ Future<void> refresh() async {
 - [ ] `PRAGMA foreign_keys = ON` enforced via `Database::get()` singleton
 
 ### New frontend screen/domain
+
 - [ ] Screen has `static routeName`, `static go`, `static push`
 - [ ] Route added to `router/router.dart`
 - [ ] No `watch` or `Consumer` — only `Selector`
@@ -945,7 +1013,10 @@ Future<void> refresh() async {
 - [ ] Service: `reactionCounts` normalized — `if (rc == null || rc is List) map['reactionCounts'] = {}`
 - [ ] Repository JSON-encodes array fields: `jsonEncode(list)`
 - [ ] State hydrates ALL individual fields in setters; `notifyListeners()` in every setter
-- [ ] Infinite scroll: `ScrollController` triggers at 80%; pull-to-refresh clears state and resets offset
+- [ ] Infinite scroll: triggers at 80% (ScrollController or NotificationListener); pull-to-refresh clears state and resets offset
+- [ ] Per-tile Selector: each list item card uses `Selector<State, Model?>` by ID so only the reacting tile rebuilds
+- [ ] Profile posts: use `PostService.fetchPageAndUpsert` + `Selector<PostState, PostModel?>` per card for instant reactions
+- [ ] User cache: `UserService.getCached` / `fetchAndCache`; profile shows cached immediately, pull-to-refresh forces update
 - [ ] Optimistic UI on reaction toggle: snapshot → apply → confirm or rollback
 - [ ] `CachedNetworkImage` for all network images with `placeholder` and `errorWidget`
 - [ ] Image grid uses `PostImageGrid` widget (1/2/3/4+ layouts)

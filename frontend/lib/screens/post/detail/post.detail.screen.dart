@@ -335,10 +335,10 @@ class _CommentsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Selector<CommentState, (List<CommentModel>, bool)>(
-      selector: (_, s) => (s.comments, s.loading),
+    return Selector<CommentState, (List<CommentModel>, bool, bool)>(
+      selector: (_, s) => (s.comments, s.loading, s.hasMore),
       builder: (context, data, _) {
-        final (comments, loading) = data;
+        final (comments, loading, hasMore) = data;
         final topLevel = comments.where((c) => c.parentId == null).toList();
 
         return Column(
@@ -369,10 +369,24 @@ class _CommentsSection extends StatelessWidget {
             else
               ...topLevel.map((c) => _CommentTile(
                     comment: c,
-                    replies:
-                        comments.where((r) => r.parentId == c.id).toList(),
+                    replies: comments.where((r) => r.parentId == c.id).toList(),
                     postId: postId,
                   )),
+            if (hasMore || (loading && comments.isNotEmpty))
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Center(
+                  child: loading
+                      ? const SizedBox(
+                          width: 20, height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: _fbBlue))
+                      : TextButton(
+                          onPressed: () => CommentService.instance.loadMore(postId),
+                          child: const Text('Load more comments',
+                              style: TextStyle(color: _fbBlue, fontWeight: FontWeight.w600)),
+                        ),
+                ),
+              ),
           ],
         );
       },
@@ -424,23 +438,57 @@ class _CommentTileState extends State<_CommentTile> {
   }
 }
 
-class _CommentRow extends StatelessWidget {
+class _CommentRow extends StatefulWidget {
   const _CommentRow({required this.comment, this.onReply});
   final CommentModel comment;
   final VoidCallback? onReply;
 
   @override
+  State<_CommentRow> createState() => _CommentRowState();
+}
+
+class _CommentRowState extends State<_CommentRow> {
+  bool _editing = false;
+  late final TextEditingController _editCtrl;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _editCtrl = TextEditingController(text: widget.comment.content);
+  }
+
+  @override
+  void dispose() {
+    _editCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveEdit() async {
+    final text = _editCtrl.text.trim();
+    if (text.isEmpty || text == widget.comment.content) {
+      setState(() => _editing = false);
+      return;
+    }
+    setState(() => _saving = true);
+    await CommentService.instance.updateById(widget.comment.id, text);
+    if (mounted) setState(() { _editing = false; _saving = false; });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final isOwner = widget.comment.userId == UserState.instance.id;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           GestureDetector(
-            onTap: () => ProfileScreen.push(context, comment.userId),
+            onTap: () => ProfileScreen.push(context, widget.comment.userId),
             child: PostAuthorAvatar(
-                name: comment.authorName,
-                avatarUrl: comment.authorAvatarUrl,
+                name: widget.comment.authorName,
+                avatarUrl: widget.comment.authorAvatarUrl,
                 size: 32),
           ),
           const SizedBox(width: 8),
@@ -459,8 +507,8 @@ class _CommentRow extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        comment.authorName.isNotEmpty
-                            ? comment.authorName
+                        widget.comment.authorName.isNotEmpty
+                            ? widget.comment.authorName
                             : 'Anonymous',
                         style: const TextStyle(
                             fontWeight: FontWeight.w700,
@@ -468,35 +516,80 @@ class _CommentRow extends StatelessWidget {
                             color: Color(0xFF050505)),
                       ),
                       const SizedBox(height: 2),
-                      Text(comment.content,
-                          style: const TextStyle(
-                              fontSize: 14, color: Color(0xFF050505))),
+                      if (_editing) ...[
+                        TextField(
+                          controller: _editCtrl,
+                          autofocus: true,
+                          minLines: 1,
+                          maxLines: 5,
+                          style: const TextStyle(fontSize: 14, color: Color(0xFF050505)),
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            border: InputBorder.none,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: _saving ? null : () => setState(() {
+                                _editing = false;
+                                _editCtrl.text = widget.comment.content;
+                              }),
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+                            ),
+                            const SizedBox(width: 4),
+                            FilledButton(
+                              onPressed: _saving ? null : _saveEdit,
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                backgroundColor: _fbBlue,
+                              ),
+                              child: _saving
+                                  ? const SizedBox(
+                                      width: 14, height: 14,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                  : const Text('Save', style: TextStyle(fontSize: 12)),
+                            ),
+                          ],
+                        ),
+                      ] else
+                        Text(widget.comment.content,
+                            style: const TextStyle(fontSize: 14, color: Color(0xFF050505))),
                     ],
                   ),
                 ),
-                if (comment.imageUrls.isNotEmpty) ...[
+                if (widget.comment.imageUrls.isNotEmpty && !_editing) ...[
                   const SizedBox(height: 6),
-                  PostImageGrid(imageUrls: comment.imageUrls),
+                  PostImageGrid(imageUrls: widget.comment.imageUrls),
                 ],
                 // Action row below bubble
                 Padding(
                   padding: const EdgeInsets.only(left: 4, top: 4),
                   child: Row(
                     children: [
-                      Text(_formatDate(comment.createdAt),
-                          style: const TextStyle(
-                              fontSize: 11, color: _fbGray)),
+                      Text(_formatDate(widget.comment.createdAt),
+                          style: const TextStyle(fontSize: 11, color: _fbGray)),
                       const SizedBox(width: 12),
                       CompactReactionBar(
                         targetType: 'comment',
-                        targetId: comment.id,
-                        reactionCounts: comment.reactionCounts,
-                        userReaction: comment.userReaction,
+                        targetId: widget.comment.id,
+                        reactionCounts: widget.comment.reactionCounts,
+                        userReaction: widget.comment.userReaction,
                       ),
-                      if (onReply != null) ...[
+                      if (widget.onReply != null && !_editing) ...[
                         const SizedBox(width: 12),
                         GestureDetector(
-                          onTap: onReply,
+                          onTap: widget.onReply,
                           child: const Text('Reply',
                               style: TextStyle(
                                   fontSize: 12,
@@ -504,13 +597,19 @@ class _CommentRow extends StatelessWidget {
                                   color: _fbGray)),
                         ),
                       ],
-                      if (comment.userId == UserState.instance.id) ...[
+                      if (isOwner && !_editing) ...[
                         const SizedBox(width: 8),
                         GestureDetector(
-                          onTap: () =>
-                              CommentService.instance.deleteById(comment.id),
-                          child: const Icon(Icons.delete_outline,
-                              size: 14, color: _fbGray),
+                          onTap: () => setState(() {
+                            _editing = true;
+                            _editCtrl.text = widget.comment.content;
+                          }),
+                          child: const Icon(Icons.edit_outlined, size: 14, color: _fbGray),
+                        ),
+                        const SizedBox(width: 4),
+                        GestureDetector(
+                          onTap: () => CommentService.instance.deleteById(widget.comment.id),
+                          child: const Icon(Icons.delete_outline, size: 14, color: _fbGray),
                         ),
                       ],
                     ],

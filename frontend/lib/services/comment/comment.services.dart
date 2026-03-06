@@ -11,14 +11,32 @@ class CommentService {
   final _state     = CommentState.instance;
   final _userState = UserState.instance;
 
+  static const int _pageSize = 5;
+
   Future<void> loadForPost(String postId) async {
     _state.clearComments();
     _state.setLoading(true);
+    await _fetchPage(postId: postId, offset: 0, replace: true);
+    _state.setLoading(false);
+  }
+
+  Future<void> loadMore(String postId) async {
+    if (_state.loading || !_state.hasMore) return;
+    _state.setLoading(true);
+    await _fetchPage(postId: postId, offset: _state.comments.length, replace: false);
+    _state.setLoading(false);
+  }
+
+  Future<void> _fetchPage({
+    required String postId,
+    required int offset,
+    required bool replace,
+  }) async {
     final res = await _repo.list(
       postId:   postId,
       viewerId: _userState.id,
-      limit:    200,
-      offset:   0,
+      limit:    _pageSize,
+      offset:   offset,
     );
     if (res['status'] == 'success') {
       final data     = res['data'] as Map<String, dynamic>;
@@ -26,9 +44,12 @@ class CommentService {
       final comments = (data['comments'] as List? ?? [])
           .map((e) => _parseComment(Map<String, dynamic>.from(e as Map)))
           .toList();
-      _state.setComments(comments, hasMore: hasMore);
+      if (replace) {
+        _state.setComments(comments, hasMore: hasMore);
+      } else {
+        _state.appendComments(comments, hasMore: hasMore);
+      }
     }
-    _state.setLoading(false);
   }
 
   Future<CommentModel?> create({
@@ -47,6 +68,14 @@ class CommentService {
     if (res['status'] != 'success' || res['data']?['comment'] == null) return null;
     final comment = _parseComment(Map<String, dynamic>.from(res['data']['comment']));
     _state.addComment(comment);
+    return comment;
+  }
+
+  Future<CommentModel?> updateById(String id, String content) async {
+    final res = await _repo.updateById(id: id, content: content, imageUrls: []);
+    if (res['status'] != 'success' || res['data']?['comment'] == null) return null;
+    final comment = _parseComment(Map<String, dynamic>.from(res['data']['comment']));
+    _state.updateComment(comment);
     return comment;
   }
 

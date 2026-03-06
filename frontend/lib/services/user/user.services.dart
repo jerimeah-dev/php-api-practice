@@ -65,6 +65,16 @@ class UserService {
     return user;
   }
 
+  final Map<String, UserModel> _cache = {};
+
+  UserModel? getCached(String id) => _cache[id];
+
+  Future<UserModel?> fetchAndCache(String id) async {
+    final user = await fetchUser(id);
+    if (user != null) _cache[id] = user;
+    return user;
+  }
+
   Future<UserModel?> fetchUser(String id) async {
     final res = await _repo.getById(id);
     return _parseUser(res);

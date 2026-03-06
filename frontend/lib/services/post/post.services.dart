@@ -11,7 +11,7 @@ class PostService {
   final _state     = PostState.instance;
   final _userState = UserState.instance;
 
-  static const int _pageSize = 20;
+  static const int _pageSize = 5;
 
   Future<void> loadFeed({String? authorId}) async {
     _state.clearPosts();
@@ -48,14 +48,24 @@ class PostService {
     }
   }
 
-  /// Raw page fetch for screens managing their own state (e.g. ProfileScreen)
-  Future<Map<String, dynamic>> fetchPage({required int offset, required String? authorId}) =>
-      _repo.list(
-        viewerId: _userState.id,
-        limit:    _pageSize,
-        offset:   offset,
-        authorId: authorId,
-      );
+  /// Fetches a page and upserts into PostState. Returns hasMore.
+  /// Used by profile screen so reactions update immediately via PostState Selectors.
+  Future<bool> fetchPageAndUpsert({required int offset, required String authorId}) async {
+    final res = await _repo.list(
+      viewerId: _userState.id,
+      limit:    _pageSize,
+      offset:   offset,
+      authorId: authorId,
+    );
+    if (res['status'] != 'success') return false;
+    final data  = res['data'] as Map<String, dynamic>;
+    final more  = data['hasMore'] as bool;
+    final posts = (data['posts'] as List? ?? [])
+        .map((e) => _parsePost(Map<String, dynamic>.from(e as Map)))
+        .toList();
+    _state.upsertPosts(posts);
+    return more;
+  }
 
   Future<PostModel?> create({required String content, String? title, List<String>? imageUrls}) async {
     final res  = await _repo.create(userId: _userState.id, content: content, title: title, imageUrls: imageUrls);

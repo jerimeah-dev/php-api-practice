@@ -25,6 +25,14 @@ class CommentState extends ChangeNotifier {
   void setComments(List<CommentModel> comments, {required bool hasMore}) {
     _comments = comments;
     _hasMore  = hasMore;
+    debugPrint('[CommentState] comments: ${_comments.length} (hasMore: $_hasMore)');
+    notifyListeners();
+  }
+
+  void appendComments(List<CommentModel> page, {required bool hasMore}) {
+    _comments = [..._comments, ...page];
+    _hasMore  = hasMore;
+    debugPrint('[CommentState] comments: ${_comments.length} (hasMore: $_hasMore)');
     notifyListeners();
   }
 

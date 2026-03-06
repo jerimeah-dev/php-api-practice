@@ -30,6 +30,7 @@ class PostState extends ChangeNotifier {
     _posts   = posts;
     _total   = total;
     _hasMore = hasMore;
+    debugPrint('[PostState] posts: ${_posts.length} (total: $_total, hasMore: $_hasMore)');
     notifyListeners();
   }
 
@@ -37,6 +38,29 @@ class PostState extends ChangeNotifier {
     _posts   = [..._posts, ...page];
     _total   = total;
     _hasMore = hasMore;
+    debugPrint('[PostState] posts: ${_posts.length} (total: $_total, hasMore: $_hasMore)');
+    notifyListeners();
+  }
+
+  /// Upsert posts into state without clearing the list.
+  /// Used by profile screen to add/update posts while preserving global feed.
+  void upsertPosts(List<PostModel> page) {
+    final existing = <String, int>{};
+    for (var i = 0; i < _posts.length; i++) {
+      existing[_posts[i].id] = i;
+    }
+    final updated = List<PostModel>.from(_posts);
+    final appended = <PostModel>[];
+    for (final p in page) {
+      final idx = existing[p.id];
+      if (idx != null) {
+        updated[idx] = p;
+      } else {
+        appended.add(p);
+      }
+    }
+    _posts = [...updated, ...appended];
+    debugPrint('[PostState] posts (upsert): ${_posts.length}');
     notifyListeners();
   }
 
