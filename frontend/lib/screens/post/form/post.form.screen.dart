@@ -9,7 +9,7 @@ class PostFormScreen extends StatefulWidget {
   final PostModel? post;
 
   static const routePathCreate = '/post/create';
-  static const routePathEdit = '/post/:id/edit';
+  static const routePathEdit   = '/post/:id/edit';
   static void pushCreate(BuildContext ctx) => ctx.push(routePathCreate);
   static void pushEdit(BuildContext ctx, PostModel post) =>
       ctx.push('/post/${post.id}/edit', extra: post);
@@ -19,10 +19,9 @@ class PostFormScreen extends StatefulWidget {
 }
 
 class _PostFormScreenState extends State<PostFormScreen> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _titleCtrl;
+  final _formKey     = GlobalKey<FormState>();
   late final TextEditingController _contentCtrl;
-  final _urlCtrl = TextEditingController();
+  final _urlCtrl     = TextEditingController();
   late List<String> _imageUrls;
   bool _loading = false;
 
@@ -31,14 +30,12 @@ class _PostFormScreenState extends State<PostFormScreen> {
   @override
   void initState() {
     super.initState();
-    _titleCtrl = TextEditingController(text: widget.post?.title ?? '');
     _contentCtrl = TextEditingController(text: widget.post?.content ?? '');
-    _imageUrls = List<String>.from(widget.post?.imageUrls ?? []);
+    _imageUrls   = List<String>.from(widget.post?.imageUrls ?? []);
   }
 
   @override
   void dispose() {
-    _titleCtrl.dispose();
     _contentCtrl.dispose();
     _urlCtrl.dispose();
     super.dispose();
@@ -49,17 +46,12 @@ class _PostFormScreenState extends State<PostFormScreen> {
     if (url.isEmpty) return;
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('URL must start with http:// or https://')),
-      );
+        const SnackBar(content: Text('URL must start with http:// or https://')));
       return;
     }
     if (_imageUrls.contains(url)) return;
     setState(() => _imageUrls.add(url));
     _urlCtrl.clear();
-  }
-
-  void _removeUrl(int index) {
-    setState(() => _imageUrls.removeAt(index));
   }
 
   Future<void> _submit() async {
@@ -69,15 +61,13 @@ class _PostFormScreenState extends State<PostFormScreen> {
     PostModel? result;
     if (_isEdit) {
       result = await PostService.instance.updateById(
-        id: widget.post!.id,
-        title: _titleCtrl.text.trim(),
-        content: _contentCtrl.text.trim(),
+        id:        widget.post!.id,
+        content:   _contentCtrl.text.trim(),
         imageUrls: _imageUrls,
       );
     } else {
       result = await PostService.instance.create(
-        title: _titleCtrl.text.trim(),
-        content: _contentCtrl.text.trim(),
+        content:   _contentCtrl.text.trim(),
         imageUrls: _imageUrls,
       );
     }
@@ -87,22 +77,18 @@ class _PostFormScreenState extends State<PostFormScreen> {
 
     if (result != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isEdit ? 'Post updated' : 'Post published')),
-      );
+          SnackBar(content: Text(_isEdit ? 'Post updated' : 'Post published')));
       context.pop();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Something went wrong. Please try again.')),
-      );
+          const SnackBar(content: Text('Something went wrong. Please try again.')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_isEdit ? 'Edit Post' : 'New Post'),
-      ),
+      appBar: AppBar(title: Text(_isEdit ? 'Edit Post' : 'New Post')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -110,53 +96,29 @@ class _PostFormScreenState extends State<PostFormScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Title
-              TextFormField(
-                controller: _titleCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Title',
-                  hintText: "What's on your mind?",
-                  border: OutlineInputBorder(),
-                ),
-                textCapitalization: TextCapitalization.sentences,
-                maxLength: 120,
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'Title is required';
-                  if (v.trim().length < 3) return 'Title is too short';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // Content
               TextFormField(
                 controller: _contentCtrl,
                 decoration: const InputDecoration(
                   labelText: 'Content',
-                  hintText: 'Write your post...',
+                  hintText: "What's on your mind?",
                   border: OutlineInputBorder(),
                   alignLabelWithHint: true,
                 ),
                 textCapitalization: TextCapitalization.sentences,
-                maxLines: 8,
+                maxLines: 10,
                 minLines: 4,
                 maxLength: 5000,
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Content is required';
-                  if (v.trim().length < 10) return 'Content is too short';
+                  if (v.trim().length < 3) return 'Content is too short';
                   return null;
                 },
               ),
-              const SizedBox(height: 20),
 
-              // Images section
-              const Text(
-                'Images',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-              ),
+              const SizedBox(height: 20),
+              const Text('Images', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
               const SizedBox(height: 10),
 
-              // URL input row
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -167,8 +129,7 @@ class _PostFormScreenState extends State<PostFormScreen> {
                         hintText: 'Paste image URL...',
                         border: OutlineInputBorder(),
                         isDense: true,
-                        contentPadding:
-                            EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                       ),
                       keyboardType: TextInputType.url,
                       onSubmitted: (_) => _addUrl(),
@@ -178,9 +139,7 @@ class _PostFormScreenState extends State<PostFormScreen> {
                   FilledButton.tonal(
                     onPressed: _addUrl,
                     style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 12),
-                    ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
                     child: const Text('Add'),
                   ),
                 ],
@@ -192,28 +151,20 @@ class _PostFormScreenState extends State<PostFormScreen> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: _imageUrls.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, i) =>
-                      _ImageTile(url: _imageUrls[i], onRemove: () => _removeUrl(i)),
+                      _ImageTile(url: _imageUrls[i], onRemove: () => setState(() => _imageUrls.removeAt(i))),
                 ),
               ],
 
               const SizedBox(height: 28),
-
               FilledButton(
                 onPressed: _loading ? null : _submit,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
+                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
                 child: _loading
                     ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
+                        height: 18, width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                     : Text(_isEdit ? 'Save Changes' : 'Publish'),
               ),
             ],
@@ -233,52 +184,36 @@ class _ImageTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(8),
-      ),
+          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(8)),
       clipBehavior: Clip.antiAlias,
       child: Row(
         children: [
-          // Thumbnail
           SizedBox(
-            width: 72,
-            height: 72,
+            width: 72, height: 72,
             child: CachedNetworkImage(
               imageUrl: url,
               fit: BoxFit.cover,
-              placeholder: (_, _) => Container(
-                color: Colors.grey.shade100,
-                child: const Center(
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ),
-              ),
-              errorWidget: (_, _, _) => Container(
-                color: Colors.grey.shade100,
-                child: Icon(Icons.broken_image_outlined,
-                    color: Colors.grey.shade400),
-              ),
+              placeholder: (_, __) => Container(
+                  color: Colors.grey.shade100,
+                  child: const Center(child: SizedBox(width: 20, height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2)))),
+              errorWidget: (_, __, ___) => Container(
+                  color: Colors.grey.shade100,
+                  child: Icon(Icons.broken_image_outlined, color: Colors.grey.shade400)),
             ),
           ),
           const SizedBox(width: 12),
-          // URL text
           Expanded(
-            child: Text(
-              url,
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+            child: Text(url,
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis),
           ),
-          // Remove button
           IconButton(
             icon: const Icon(Icons.close, size: 18),
             color: Colors.grey.shade600,
             onPressed: onRemove,
-            tooltip: 'Remove',
           ),
         ],
       ),

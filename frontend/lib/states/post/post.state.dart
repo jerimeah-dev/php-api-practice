@@ -11,13 +11,45 @@ class PostState extends ChangeNotifier {
   bool _loading = false;
   bool get loading => _loading;
 
-  void setPosts(List<PostModel> posts) {
-    _posts = posts;
+  bool _hasMore = true;
+  bool get hasMore => _hasMore;
+
+  int _total = 0;
+  int get total => _total;
+
+  // Reaction snapshot for optimistic UI rollback
+  Map<String, dynamic>? _snapshot;
+  String? _snapshotId;
+
+  void setLoading(bool val) {
+    _loading = val;
+    notifyListeners();
+  }
+
+  void setPosts(List<PostModel> posts, {required int total, required bool hasMore}) {
+    _posts   = posts;
+    _total   = total;
+    _hasMore = hasMore;
+    notifyListeners();
+  }
+
+  void appendPosts(List<PostModel> page, {required int total, required bool hasMore}) {
+    _posts   = [..._posts, ...page];
+    _total   = total;
+    _hasMore = hasMore;
+    notifyListeners();
+  }
+
+  void clearPosts() {
+    _posts   = [];
+    _total   = 0;
+    _hasMore = true;
     notifyListeners();
   }
 
   void addPost(PostModel post) {
     _posts = [post, ..._posts];
+    _total++;
     notifyListeners();
   }
 
@@ -28,11 +60,50 @@ class PostState extends ChangeNotifier {
 
   void removePost(String id) {
     _posts = _posts.where((p) => p.id != id).toList();
+    if (_total > 0) _total--;
     notifyListeners();
   }
 
-  void setLoading(bool val) {
-    _loading = val;
-    notifyListeners();
+  void applyOptimisticReaction(String postId, String type) {
+    final post = _posts.where((p) => p.id == postId).firstOrNull;
+    if (post == null) return;
+    _snapshotId = postId;
+    _snapshot   = {'rc': post.reactionCounts, 'ur': post.userReaction};
+
+    final counts = Map<String, int>.from(post.reactionCounts);
+    String? newReaction;
+    if (post.userReaction == type) {
+      counts[type] = (counts[type] ?? 1) - 1;
+      if ((counts[type] ?? 0) <= 0) counts.remove(type);
+      newReaction = null;
+    } else {
+      if (post.userReaction != null) {
+        final old = post.userReaction!;
+        counts[old] = (counts[old] ?? 1) - 1;
+        if ((counts[old] ?? 0) <= 0) counts.remove(old);
+      }
+      counts[type] = (counts[type] ?? 0) + 1;
+      newReaction = type;
+    }
+    updatePost(post.copyWithReactions(reactionCounts: counts, userReaction: newReaction));
+  }
+
+  void applyReactionResult(String postId, Map<String, int> reactionCounts, String? userReaction) {
+    _snapshot = null;
+    final post = _posts.where((p) => p.id == postId).firstOrNull;
+    if (post == null) return;
+    updatePost(post.copyWithReactions(reactionCounts: reactionCounts, userReaction: userReaction));
+  }
+
+  void rollbackReaction(String postId) {
+    if (_snapshot == null || _snapshotId != postId) return;
+    final post = _posts.where((p) => p.id == postId).firstOrNull;
+    if (post != null) {
+      updatePost(post.copyWithReactions(
+        reactionCounts: _snapshot!['rc'] as Map<String, int>,
+        userReaction:   _snapshot!['ur'] as String?,
+      ));
+    }
+    _snapshot = null;
   }
 }

@@ -1,5 +1,7 @@
-class PostModel {
+class CommentModel {
   final String id;
+  final String postId;
+  final String? parentId;
   final String userId;
   final String authorName;
   final String authorAvatarUrl;
@@ -10,8 +12,10 @@ class PostModel {
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  const PostModel({
+  const CommentModel({
     required this.id,
+    required this.postId,
+    required this.parentId,
     required this.userId,
     required this.authorName,
     required this.authorAvatarUrl,
@@ -23,8 +27,10 @@ class PostModel {
     required this.updatedAt,
   });
 
-  factory PostModel.fromJson(Map<String, dynamic> json) => PostModel(
+  factory CommentModel.fromJson(Map<String, dynamic> json) => CommentModel(
         id: json['id'] ?? '',
+        postId: json['postId'] ?? '',
+        parentId: json['parentId'] as String?,
         userId: json['userId'] ?? '',
         authorName: json['authorName'] ?? '',
         authorAvatarUrl: json['authorAvatarUrl'] ?? '',
@@ -39,25 +45,14 @@ class PostModel {
             ((json['updatedAt'] ?? 0) as int) * 1000),
       );
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'userId': userId,
-        'authorName': authorName,
-        'authorAvatarUrl': authorAvatarUrl,
-        'content': content,
-        'imageUrls': imageUrls,
-        'reactionCounts': reactionCounts,
-        'userReaction': userReaction,
-        'createdAt': createdAt.millisecondsSinceEpoch ~/ 1000,
-        'updatedAt': updatedAt.millisecondsSinceEpoch ~/ 1000,
-      };
-
-  PostModel copyWithReactions({
+  CommentModel copyWithReactions({
     required Map<String, int> reactionCounts,
     required String? userReaction,
   }) =>
-      PostModel(
+      CommentModel(
         id: id,
+        postId: postId,
+        parentId: parentId,
         userId: userId,
         authorName: authorName,
         authorAvatarUrl: authorAvatarUrl,

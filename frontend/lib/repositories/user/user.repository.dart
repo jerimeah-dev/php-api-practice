@@ -28,55 +28,20 @@ class UserRepository {
       });
 
   Future<Map<String, dynamic>> getById(String id) =>
-      ApiClient.instance.post('/api.php', {
-        'method': 'user.findById',
-        'id': id,
-      });
-
-  Future<Map<String, dynamic>> getByEmail(String email) =>
-      ApiClient.instance.post('/api.php', {
-        'method': 'user.findByEmail',
-        'email': email,
-      });
+      ApiClient.instance.post('/api.php', {'method': 'user.findById', 'id': id});
 
   Future<Map<String, dynamic>> updateById({
     required String id,
-    String? email,
-    String? password,
     String? name,
-    int? birthday,
-    String? bio,
-    String? websiteUrl,
-    int? followersCount,
-    int? followingCount,
-    int? postsCount,
-    List<Map<String, dynamic>>? education,
-    List<Map<String, dynamic>>? workExperience,
     List<Map<String, dynamic>>? profileImages,
   }) =>
       ApiClient.instance.post('/api.php', {
         'method': 'user.updateById',
         'id': id,
-        if (email != null) 'email': email,
-        if (password != null) 'password': password,
         if (name != null) 'name': name,
-        if (birthday != null) 'birthday': birthday,
-        if (bio != null) 'bio': bio,
-        if (websiteUrl != null) 'websiteUrl': websiteUrl,
-        if (followersCount != null) 'followersCount': followersCount,
-        if (followingCount != null) 'followingCount': followingCount,
-        if (postsCount != null) 'postsCount': postsCount,
-        if (education != null) 'education': jsonEncode(education),
-        if (workExperience != null) 'workExperience': jsonEncode(workExperience),
         if (profileImages != null) 'profileImages': jsonEncode(profileImages),
       });
 
   Future<Map<String, dynamic>> deleteById(String id) =>
-      ApiClient.instance.post('/api.php', {
-        'method': 'user.deleteById',
-        'id': id,
-      });
-
-  Future<Map<String, dynamic>> listAll() =>
-      ApiClient.instance.post('/api.php', {'method': 'user.listAll'});
+      ApiClient.instance.post('/api.php', {'method': 'user.deleteById', 'id': id});
 }

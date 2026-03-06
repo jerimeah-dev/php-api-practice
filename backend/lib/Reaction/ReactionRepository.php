@@ -2,108 +2,103 @@
 
 namespace lib\Reaction;
 
-use lib\Utils\Database;
-use PDO;
+use lib\Core\Repository;
 
-class ReactionRepository
+class ReactionRepository extends Repository
 {
-    private PDO $db;
-
     public function __construct()
     {
-        $this->db = Database::get();
-        $this->db->exec("
-            CREATE TABLE IF NOT EXISTS reactions (
-                id TEXT PRIMARY KEY,
-                postId TEXT NOT NULL,
-                userId TEXT NOT NULL,
-                type TEXT NOT NULL,
-                createdAt INTEGER NOT NULL,
-                UNIQUE(postId, userId),
-                FOREIGN KEY (postId) REFERENCES posts(id) ON DELETE CASCADE
-            )
-        ");
+        parent::__construct();
+        $this->createTable();
     }
 
-    /** Toggle a reaction. Returns the new type, or null if removed. */
-    public function toggle(string $postId, string $userId, string $type): ?string
+    private function createTable(): void
     {
-        $existing = $this->findByPostAndUser($postId, $userId);
+        $this->db->exec("CREATE TABLE IF NOT EXISTS reactions (
+            userId     TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            targetType TEXT    NOT NULL,
+            targetId   TEXT    NOT NULL,
+            type       TEXT    NOT NULL,
+            createdAt  INTEGER NOT NULL,
+            UNIQUE(userId, targetType, targetId)
+        )");
+        // Migrate old schema (postId-based) to new (targetType/targetId)
+        try { $this->db->exec("ALTER TABLE reactions ADD COLUMN targetType TEXT NOT NULL DEFAULT 'post'"); } catch (\Throwable) {}
+        try { $this->db->exec("ALTER TABLE reactions ADD COLUMN targetId TEXT NOT NULL DEFAULT ''"); } catch (\Throwable) {}
+    }
 
-        if ($existing) {
-            if ($existing['type'] === $type) {
-                $this->delete($postId, $userId);
-                return null;
+    /** Toggle reaction; returns 'added' | 'removed' | 'changed' */
+    public function toggle(string $userId, string $targetType, string $targetId, string $type): string
+    {
+        $existing = $this->getUserReaction($targetType, $targetId, $userId);
+
+        if ($existing !== null) {
+            if ($existing === $type) {
+                $this->execute(
+                    "DELETE FROM reactions WHERE userId = ? AND targetType = ? AND targetId = ?",
+                    [$userId, $targetType, $targetId]
+                );
+                return 'removed';
             }
-            $stmt = $this->db->prepare("UPDATE reactions SET type = ? WHERE postId = ? AND userId = ?");
-            $stmt->execute([$type, $postId, $userId]);
-            return $type;
+            $this->execute(
+                "UPDATE reactions SET type = ? WHERE userId = ? AND targetType = ? AND targetId = ?",
+                [$type, $userId, $targetType, $targetId]
+            );
+            return 'changed';
         }
 
-        $stmt = $this->db->prepare(
-            "INSERT INTO reactions (id, postId, userId, type, createdAt) VALUES (?, ?, ?, ?, ?)"
+        $this->execute(
+            "INSERT INTO reactions (userId, targetType, targetId, type, createdAt) VALUES (?, ?, ?, ?, ?)",
+            [$userId, $targetType, $targetId, $type, time()]
         );
-        $stmt->execute([bin2hex(random_bytes(8)), $postId, $userId, $type, time()]);
-        return $type;
+        return 'added';
     }
 
-    public function findByPostAndUser(string $postId, string $userId): ?array
+    public function getUserReaction(string $targetType, string $targetId, string $userId): ?string
     {
-        $stmt = $this->db->prepare("SELECT * FROM reactions WHERE postId = ? AND userId = ?");
-        $stmt->execute([$postId, $userId]);
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-    }
-
-    private function delete(string $postId, string $userId): void
-    {
-        $stmt = $this->db->prepare("DELETE FROM reactions WHERE postId = ? AND userId = ?");
-        $stmt->execute([$postId, $userId]);
-    }
-
-    /** Returns ['like' => 3, 'love' => 1, ...] for a single post */
-    public function getCountsForPost(string $postId): array
-    {
-        $stmt = $this->db->prepare(
-            "SELECT type, COUNT(*) as cnt FROM reactions WHERE postId = ? GROUP BY type"
+        $row = $this->fetch(
+            "SELECT type FROM reactions WHERE userId = ? AND targetType = ? AND targetId = ?",
+            [$userId, $targetType, $targetId]
         );
-        $stmt->execute([$postId]);
+        return $row ? $row['type'] : null;
+    }
+
+    public function getCountsForTarget(string $targetType, string $targetId): array
+    {
+        $rows = $this->fetchAll(
+            "SELECT type, COUNT(*) as cnt FROM reactions WHERE targetType = ? AND targetId = ? GROUP BY type",
+            [$targetType, $targetId]
+        );
         $result = [];
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $result[$row['type']] = (int) $row['cnt'];
-        }
+        foreach ($rows as $row) $result[$row['type']] = (int) $row['cnt'];
         return $result;
     }
 
-    /** Batch: returns ['postId1' => ['like' => 3, ...], ...] */
-    public function getCountsBatch(array $postIds): array
+    public function getCountsBatch(string $targetType, array $targetIds): array
     {
-        if (empty($postIds)) return [];
-        $placeholders = implode(',', array_fill(0, count($postIds), '?'));
-        $stmt = $this->db->prepare(
-            "SELECT postId, type, COUNT(*) as cnt FROM reactions
-             WHERE postId IN ($placeholders) GROUP BY postId, type"
+        if (empty($targetIds)) return [];
+        $ph   = implode(',', array_fill(0, count($targetIds), '?'));
+        $rows = $this->fetchAll(
+            "SELECT targetId, type, COUNT(*) as cnt FROM reactions
+             WHERE targetType = ? AND targetId IN ($ph) GROUP BY targetId, type",
+            [$targetType, ...$targetIds]
         );
-        $stmt->execute($postIds);
         $result = [];
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $result[$row['postId']][$row['type']] = (int) $row['cnt'];
-        }
+        foreach ($rows as $row) $result[$row['targetId']][$row['type']] = (int) $row['cnt'];
         return $result;
     }
 
-    /** Batch: returns ['postId1' => 'like', ...] for the given user */
-    public function getUserReactionsBatch(array $postIds, string $userId): array
+    public function getUserReactionsBatch(string $targetType, array $targetIds, string $userId): array
     {
-        if (empty($postIds) || !$userId) return [];
-        $placeholders = implode(',', array_fill(0, count($postIds), '?'));
-        $stmt = $this->db->prepare(
-            "SELECT postId, type FROM reactions WHERE postId IN ($placeholders) AND userId = ?"
+        if (empty($targetIds) || !$userId) return [];
+        $ph   = implode(',', array_fill(0, count($targetIds), '?'));
+        $rows = $this->fetchAll(
+            "SELECT targetId, type FROM reactions
+             WHERE targetType = ? AND targetId IN ($ph) AND userId = ?",
+            [$targetType, ...$targetIds, $userId]
         );
-        $stmt->execute([...$postIds, $userId]);
         $result = [];
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $result[$row['postId']] = $row['type'];
-        }
+        foreach ($rows as $row) $result[$row['targetId']] = $row['type'];
         return $result;
     }
 }

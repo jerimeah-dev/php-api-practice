@@ -1,16 +1,24 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:frontend/models/comment/comment.model.dart';
 import 'package:frontend/models/post/post.model.dart';
 import 'package:frontend/screens/post/form/post.form.screen.dart';
+import 'package:frontend/screens/profile/profile.screen.dart';
+import 'package:frontend/services/comment/comment.services.dart';
 import 'package:frontend/services/post/post.services.dart';
+import 'package:frontend/states/comment/comment.state.dart';
 import 'package:frontend/states/post/post.state.dart';
 import 'package:frontend/states/user/user.state.dart';
 import 'package:frontend/widgets/post_author_avatar.dart';
+import 'package:frontend/widgets/post_image_grid.dart';
 import 'package:frontend/widgets/reaction_bar.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-class PostDetailScreen extends StatelessWidget {
+const _fbBlue = Color(0xFF1877F2);
+const _fbGray = Color(0xFF65676B);
+
+class PostDetailScreen extends StatefulWidget {
   const PostDetailScreen({super.key, required this.postId});
   final String postId;
 
@@ -19,9 +27,31 @@ class PostDetailScreen extends StatelessWidget {
   static void go(BuildContext ctx, String id) => ctx.go('/post/$id');
 
   @override
+  State<PostDetailScreen> createState() => _PostDetailScreenState();
+}
+
+class _PostDetailScreenState extends State<PostDetailScreen> {
+  final _commentFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      CommentService.instance.loadForPost(widget.postId);
+    });
+  }
+
+  @override
+  void dispose() {
+    _commentFocus.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Selector<PostState, PostModel?>(
-      selector: (_, s) => s.posts.where((p) => p.id == postId).firstOrNull,
+      selector: (_, s) =>
+          s.posts.where((p) => p.id == widget.postId).firstOrNull,
       builder: (context, post, _) {
         if (post == null) {
           return Scaffold(
@@ -29,121 +59,225 @@ class PostDetailScreen extends StatelessWidget {
             body: const Center(child: Text('Post not found')),
           );
         }
-        return _PostDetailView(post: post);
+        return _PostDetailView(
+          post: post,
+          commentFocus: _commentFocus,
+          postId: widget.postId,
+        );
       },
     );
   }
 }
 
 class _PostDetailView extends StatelessWidget {
-  const _PostDetailView({required this.post});
+  const _PostDetailView({
+    required this.post,
+    required this.commentFocus,
+    required this.postId,
+  });
+
   final PostModel post;
+  final FocusNode commentFocus;
+  final String postId;
+
+  static const _emojiMap = {
+    'Like': '👍', 'Love': '❤️', 'Haha': '😂',
+    'Wow':  '😮', 'Sad':  '😢', 'Angry': '😡',
+  };
+  static const _emojiOrder = ['Like', 'Love', 'Haha', 'Wow', 'Sad', 'Angry'];
 
   @override
   Widget build(BuildContext context) {
     final isOwner = post.userId == UserState.instance.id;
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF0F2F5),
       appBar: AppBar(
-        title: const Text('Post'),
+        title: const Text('Post', style: TextStyle(fontWeight: FontWeight.w700)),
         actions: isOwner
             ? [
                 IconButton(
                   icon: const Icon(Icons.edit_outlined),
-                  tooltip: 'Edit',
                   onPressed: () => PostFormScreen.pushEdit(context, post),
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
-                  tooltip: 'Delete',
                   onPressed: () => _confirmDelete(context),
                 ),
               ]
             : null,
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      body: RefreshIndicator(
+        color: _fbBlue,
+        onRefresh: () => CommentService.instance.loadForPost(postId),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           children: [
-            // Full-width image(s) at top
-            if (post.imageUrls.isNotEmpty)
-              _ImageGallery(imageUrls: post.imageUrls),
-
-            Padding(
-              padding: const EdgeInsets.all(20),
+            // ── Post card ──────────────────────────────────────────────────
+            Container(
+              color: Colors.white,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Author row
-                  Row(
-                    children: [
-                      PostAuthorAvatar(name: post.authorName, avatarUrl: post.authorAvatarUrl, size: 40),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            post.authorName.isNotEmpty
-                                ? post.authorName
-                                : 'Anonymous',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w600, fontSize: 15),
-                          ),
-                          Text(
-                            _formatDate(post.createdAt),
-                            style: TextStyle(
-                                color: Colors.grey[600], fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ],
+                  _buildAuthorRow(context),
+                  _buildContent(),
+                  if (post.imageUrls.isNotEmpty) _buildImages(context),
+                  _buildReactionSummary(context),
+                  const Divider(height: 1, indent: 12, endIndent: 12),
+                  FullReactionBar(
+                    targetType: 'post',
+                    targetId: post.id,
+                    reactionCounts: post.reactionCounts,
+                    userReaction: post.userReaction,
+                    onComment: () => commentFocus.requestFocus(),
                   ),
-
-                  const SizedBox(height: 20),
-                  const Divider(),
-                  const SizedBox(height: 16),
-
-                  // Title
-                  Text(
-                    post.title,
-                    style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        height: 1.3),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Content
-                  Text(
-                    post.content,
-                    style: const TextStyle(
-                        fontSize: 16,
-                        height: 1.6,
-                        color: Color(0xFF333333)),
-                  ),
-
-                  if (post.updatedAt != post.createdAt) ...[
-                    const SizedBox(height: 24),
-                    Text(
-                      'Edited ${_formatDate(post.updatedAt)}',
-                      style: TextStyle(
-                          color: Colors.grey[500],
-                          fontSize: 12,
-                          fontStyle: FontStyle.italic),
-                    ),
-                  ],
-
-                  const SizedBox(height: 24),
-                  const Divider(),
-                  const SizedBox(height: 8),
-                  FullReactionBar(post: post),
-                  const SizedBox(height: 8),
                 ],
               ),
             ),
+
+            // ── Comments ───────────────────────────────────────────────────
+            const SizedBox(height: 8),
+            Container(
+              color: Colors.white,
+              child: _CommentsSection(postId: postId),
+            ),
+            const SizedBox(height: 80),
           ],
         ),
+      ),
+      bottomSheet: _CommentInput(postId: postId, focusNode: commentFocus),
+    );
+  }
+
+  Widget _buildAuthorRow(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 14, 8, 0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onTap: () => ProfileScreen.push(context, post.userId),
+            child: PostAuthorAvatar(
+                name: post.authorName,
+                avatarUrl: post.authorAvatarUrl,
+                size: 42),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => ProfileScreen.push(context, post.userId),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 2),
+                  Text(
+                    post.authorName.isNotEmpty ? post.authorName : 'Anonymous',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14.5,
+                        color: Color(0xFF050505)),
+                  ),
+                  Row(
+                    children: [
+                      Text(_formatDate(post.createdAt),
+                          style: const TextStyle(color: _fbGray, fontSize: 12)),
+                      const SizedBox(width: 3),
+                      const Icon(Icons.public, size: 12, color: _fbGray),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            post.content,
+            style: const TextStyle(
+                fontSize: 16, color: Color(0xFF050505), height: 1.5),
+          ),
+          if (post.updatedAt != post.createdAt) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Edited · ${_formatDate(post.updatedAt)}',
+              style: const TextStyle(
+                  color: _fbGray, fontSize: 12, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildImages(BuildContext context) {
+    return PostImageGrid(
+      imageUrls: post.imageUrls,
+      borderRadius: BorderRadius.zero,
+      onTap: (i) => _openFullscreen(context, i),
+    );
+  }
+
+  Widget _buildReactionSummary(BuildContext context) {
+    final total = post.reactionCounts.values.fold(0, (s, v) => s + v);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      child: Row(
+        children: [
+          if (total > 0) ...[
+            _emojiStack(post.reactionCounts),
+            const SizedBox(width: 4),
+            Text('$total', style: const TextStyle(color: _fbGray, fontSize: 13)),
+          ],
+          const Spacer(),
+          Selector<CommentState, int>(
+            selector: (_, s) => s.comments.length,
+            builder: (_, count, __) => count > 0
+                ? Text('$count comment${count == 1 ? '' : 's'}',
+                    style: const TextStyle(color: _fbGray, fontSize: 13))
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emojiStack(Map<String, int> counts) {
+    final shown = _emojiOrder
+        .where((t) => (counts[t] ?? 0) > 0)
+        .toList()
+      ..sort((a, b) => (counts[b] ?? 0).compareTo(counts[a] ?? 0));
+    final top = shown.take(3).toList();
+    return SizedBox(
+      width: top.length * 16.0 + 6,
+      height: 22,
+      child: Stack(
+        children: top.asMap().entries.map((e) {
+          return Positioned(
+            left: e.key * 14.0,
+            child: Container(
+              width: 20,
+              height: 20,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white,
+                boxShadow: [BoxShadow(blurRadius: 1, color: Color(0x22000000))],
+              ),
+              alignment: Alignment.center,
+              child: Text(_emojiMap[e.value]!,
+                  style: const TextStyle(fontSize: 11)),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -156,9 +290,8 @@ class _PostDetailView extends StatelessWidget {
         content: const Text('This action cannot be undone.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
@@ -173,6 +306,17 @@ class _PostDetailView extends StatelessWidget {
     );
   }
 
+  void _openFullscreen(BuildContext context, int index) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) =>
+            _FullscreenGallery(imageUrls: post.imageUrls, initialIndex: index),
+      ),
+    );
+  }
+
   String _formatDate(DateTime dt) {
     final diff = DateTime.now().difference(dt);
     if (diff.inSeconds < 60) return 'Just now';
@@ -183,93 +327,387 @@ class _PostDetailView extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Image gallery — horizontal scroll with tap-to-fullscreen
-// ---------------------------------------------------------------------------
+// ─── Comments section ─────────────────────────────────────────────────────────
 
-class _ImageGallery extends StatelessWidget {
-  const _ImageGallery({required this.imageUrls});
-  final List<String> imageUrls;
+class _CommentsSection extends StatelessWidget {
+  const _CommentsSection({required this.postId});
+  final String postId;
 
   @override
   Widget build(BuildContext context) {
-    if (imageUrls.length == 1) {
-      return _tappableImage(context, imageUrls.first, 0, height: 280);
-    }
+    return Selector<CommentState, (List<CommentModel>, bool)>(
+      selector: (_, s) => (s.comments, s.loading),
+      builder: (context, data, _) {
+        final (comments, loading) = data;
+        final topLevel = comments.where((c) => c.parentId == null).toList();
 
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 14, 12, 8),
+              child: Text(
+                '${comments.length} Comment${comments.length == 1 ? '' : 's'}',
+                style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    color: Color(0xFF050505)),
+              ),
+            ),
+            if (loading && comments.isEmpty)
+              const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator(color: _fbBlue)))
+            else if (comments.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Center(
+                  child: Text('No comments yet. Be the first!',
+                      style: TextStyle(color: Colors.grey[500])),
+                ),
+              )
+            else
+              ...topLevel.map((c) => _CommentTile(
+                    comment: c,
+                    replies:
+                        comments.where((r) => r.parentId == c.id).toList(),
+                    postId: postId,
+                  )),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CommentTile extends StatefulWidget {
+  const _CommentTile(
+      {required this.comment,
+      required this.replies,
+      required this.postId});
+  final CommentModel comment;
+  final List<CommentModel> replies;
+  final String postId;
+
+  @override
+  State<_CommentTile> createState() => _CommentTileState();
+}
+
+class _CommentTileState extends State<_CommentTile> {
+  bool _showReplyInput = false;
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          height: 220,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            itemCount: imageUrls.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 10),
-            itemBuilder: (context, i) =>
-                _tappableImage(context, imageUrls[i], i,
-                    width: 200, height: 196, rounded: true),
-          ),
+        _CommentRow(
+          comment: widget.comment,
+          onReply: () => setState(() => _showReplyInput = !_showReplyInput),
         ),
-        Padding(
-          padding: const EdgeInsets.only(left: 16, bottom: 4),
-          child: Text(
-            '${imageUrls.length} photos',
-            style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+        if (_showReplyInput)
+          Padding(
+            padding: const EdgeInsets.only(left: 56),
+            child: _InlineReplyInput(
+              postId: widget.postId,
+              parentId: widget.comment.id,
+              onDone: () => setState(() => _showReplyInput = false),
+            ),
           ),
-        ),
+        ...widget.replies.map((r) => Padding(
+              padding: const EdgeInsets.only(left: 44),
+              child: _CommentRow(comment: r),
+            )),
+        const Divider(height: 1, indent: 12, endIndent: 12),
       ],
     );
   }
+}
 
-  Widget _tappableImage(
-    BuildContext context,
-    String url,
-    int index, {
-    double? width,
-    double? height,
-    bool rounded = false,
-  }) {
-    Widget img = CachedNetworkImage(
-      imageUrl: url,
-      width: width ?? double.infinity,
-      height: height,
-      fit: BoxFit.cover,
-      placeholder: (_, _) => Container(
-        width: width,
-        height: height,
-        color: Colors.grey.shade200,
-        child: const Center(child: CircularProgressIndicator()),
+class _CommentRow extends StatelessWidget {
+  const _CommentRow({required this.comment, this.onReply});
+  final CommentModel comment;
+  final VoidCallback? onReply;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onTap: () => ProfileScreen.push(context, comment.userId),
+            child: PostAuthorAvatar(
+                name: comment.authorName,
+                avatarUrl: comment.authorAvatarUrl,
+                size: 32),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Bubble
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0F2F5),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        comment.authorName.isNotEmpty
+                            ? comment.authorName
+                            : 'Anonymous',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            color: Color(0xFF050505)),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(comment.content,
+                          style: const TextStyle(
+                              fontSize: 14, color: Color(0xFF050505))),
+                    ],
+                  ),
+                ),
+                if (comment.imageUrls.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  PostImageGrid(imageUrls: comment.imageUrls),
+                ],
+                // Action row below bubble
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, top: 4),
+                  child: Row(
+                    children: [
+                      Text(_formatDate(comment.createdAt),
+                          style: const TextStyle(
+                              fontSize: 11, color: _fbGray)),
+                      const SizedBox(width: 12),
+                      CompactReactionBar(
+                        targetType: 'comment',
+                        targetId: comment.id,
+                        reactionCounts: comment.reactionCounts,
+                        userReaction: comment.userReaction,
+                      ),
+                      if (onReply != null) ...[
+                        const SizedBox(width: 12),
+                        GestureDetector(
+                          onTap: onReply,
+                          child: const Text('Reply',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: _fbGray)),
+                        ),
+                      ],
+                      if (comment.userId == UserState.instance.id) ...[
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () =>
+                              CommentService.instance.deleteById(comment.id),
+                          child: const Icon(Icons.delete_outline,
+                              size: 14, color: _fbGray),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
-      errorWidget: (_, _, _) => Container(
-        width: width,
-        height: height,
-        color: Colors.grey.shade100,
-        child: Icon(Icons.broken_image_outlined,
-            size: 40, color: Colors.grey.shade400),
-      ),
-    );
-
-    if (rounded) img = ClipRRect(borderRadius: BorderRadius.circular(10), child: img);
-
-    return GestureDetector(
-      onTap: () => _openFullscreen(context, index),
-      child: img,
     );
   }
 
-  void _openFullscreen(BuildContext context, int index) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) =>
-            _FullscreenGallery(imageUrls: imageUrls, initialIndex: index),
+  String _formatDate(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 60) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
+    if (diff.inHours < 24) return '${diff.inHours}h';
+    return '${dt.day}/${dt.month}/${dt.year}';
+  }
+}
+
+class _InlineReplyInput extends StatefulWidget {
+  const _InlineReplyInput(
+      {required this.postId, required this.parentId, required this.onDone});
+  final String postId;
+  final String parentId;
+  final VoidCallback onDone;
+
+  @override
+  State<_InlineReplyInput> createState() => _InlineReplyInputState();
+}
+
+class _InlineReplyInputState extends State<_InlineReplyInput> {
+  final _ctrl = TextEditingController();
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final text = _ctrl.text.trim();
+    if (text.isEmpty) return;
+    setState(() => _loading = true);
+    await CommentService.instance.create(
+      postId: widget.postId,
+      content: text,
+      parentId: widget.parentId,
+    );
+    if (mounted) {
+      _ctrl.clear();
+      setState(() => _loading = false);
+      widget.onDone();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 6, 12, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _ctrl,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'Write a reply...',
+                hintStyle: const TextStyle(color: _fbGray, fontSize: 14),
+                filled: true,
+                fillColor: const Color(0xFFF0F2F5),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                isDense: true,
+              ),
+              minLines: 1,
+              maxLines: 3,
+            ),
+          ),
+          const SizedBox(width: 6),
+          _loading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: _fbBlue))
+              : IconButton(
+                  icon: const Icon(Icons.send_rounded),
+                  onPressed: _submit,
+                  color: _fbBlue,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+        ],
       ),
     );
   }
 }
+
+// ─── Bottom comment input ─────────────────────────────────────────────────────
+
+class _CommentInput extends StatefulWidget {
+  const _CommentInput({required this.postId, this.focusNode});
+  final String postId;
+  final FocusNode? focusNode;
+
+  @override
+  State<_CommentInput> createState() => _CommentInputState();
+}
+
+class _CommentInputState extends State<_CommentInput> {
+  final _ctrl = TextEditingController();
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final text = _ctrl.text.trim();
+    if (text.isEmpty) return;
+    setState(() => _loading = true);
+    await CommentService.instance.create(postId: widget.postId, content: text);
+    if (mounted) {
+      _ctrl.clear();
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.only(
+        left: 12,
+        right: 8,
+        top: 8,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 8,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Color(0xFFE4E6EB))),
+      ),
+      child: Row(
+        children: [
+          PostAuthorAvatar(
+              name: UserState.instance.name,
+              avatarUrl: UserState.instance.avatarUrl,
+              size: 32),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _ctrl,
+              focusNode: widget.focusNode,
+              decoration: InputDecoration(
+                hintText: 'Write a comment...',
+                hintStyle: const TextStyle(color: _fbGray, fontSize: 14),
+                filled: true,
+                fillColor: const Color(0xFFF0F2F5),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                isDense: true,
+              ),
+              minLines: 1,
+              maxLines: 4,
+              textInputAction: TextInputAction.newline,
+            ),
+          ),
+          const SizedBox(width: 4),
+          _loading
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: _fbBlue))
+              : IconButton(
+                  icon: const Icon(Icons.send_rounded),
+                  onPressed: _submit,
+                  color: _fbBlue,
+                ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Fullscreen image gallery ─────────────────────────────────────────────────
 
 class _FullscreenGallery extends StatefulWidget {
   const _FullscreenGallery(
@@ -319,8 +757,7 @@ class _FullscreenGalleryState extends State<_FullscreenGallery> {
               imageUrl: widget.imageUrls[i],
               fit: BoxFit.contain,
               placeholder: (_, _) => const Center(
-                child: CircularProgressIndicator(color: Colors.white),
-              ),
+                  child: CircularProgressIndicator(color: Colors.white)),
               errorWidget: (_, _, _) => Icon(Icons.broken_image_outlined,
                   size: 64, color: Colors.grey.shade600),
             ),
@@ -330,4 +767,3 @@ class _FullscreenGalleryState extends State<_FullscreenGallery> {
     );
   }
 }
-

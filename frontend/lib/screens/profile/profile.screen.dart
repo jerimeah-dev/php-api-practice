@@ -1,570 +1,545 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:frontend/models/post/post.model.dart';
 import 'package:frontend/models/user/user.model.dart';
+import 'package:frontend/screens/post/detail/post.detail.screen.dart';
+import 'package:frontend/services/post/post.services.dart';
 import 'package:frontend/services/user/user.services.dart';
 import 'package:frontend/states/user/user.state.dart';
+import 'package:frontend/widgets/post_author_avatar.dart';
+import 'package:frontend/widgets/post_image_grid.dart';
+import 'package:frontend/widgets/reaction_bar.dart';
 import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
 
-class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key});
+const _fbBlue = Color(0xFF1877F2);
+const _fbGray = Color(0xFF65676B);
 
-  static const String routeName = '/profile';
-  static Function(BuildContext ctx) push = (ctx) => ctx.push(routeName);
-  static Function(BuildContext ctx) go = (ctx) => ctx.go(routeName);
+class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({super.key, required this.userId});
+  final String userId;
 
-  @override
-  Widget build(BuildContext context) {
-    return Selector<UserState, UserModel?>(
-      selector: (_, s) => s.user,
-      builder: (context, user, _) {
-        if (user == null) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
-        return _ProfileView(user: user);
-      },
-    );
-  }
-}
-
-// ─── Main profile view ────────────────────────────────────────────────────────
-
-class _ProfileView extends StatelessWidget {
-  const _ProfileView({required this.user});
-  final UserModel user;
+  static const String routeName = '/profile/:id';
+  static void push(BuildContext ctx, String id) => ctx.push('/profile/$id');
+  static void go(BuildContext ctx, String id) => ctx.go('/profile/$id');
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profile'),
-        actions: [
-          TextButton.icon(
-            onPressed: () {
-              UserService.instance.logout();
-              context.go('/login');
-            },
-            icon: const Icon(Icons.logout, size: 18),
-            label: const Text('Logout'),
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _AvatarHeader(user: user),
-            const SizedBox(height: 24),
-            const _StatsRow(),
-            const SizedBox(height: 24),
-            _AboutSection(user: user),
-            const SizedBox(height: 24),
-            _PasswordSection(user: user),
-            if (user.profileImages.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              _PhotosSection(user: user),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
+  State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-// ─── Avatar + name + bio header ──────────────────────────────────────────────
+class _ProfileScreenState extends State<ProfileScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabCtrl;
+  UserModel? _profileUser;
+  bool _loadingUser = true;
 
-class _AvatarHeader extends StatelessWidget {
-  const _AvatarHeader({required this.user});
-  final UserModel user;
+  final List<PostModel> _posts = [];
+  bool _loadingPosts = false;
+  bool _hasMore = true;
+  final ScrollController _scrollCtrl = ScrollController();
 
-  @override
-  Widget build(BuildContext context) {
-    final currentImage = user.profileImages.isNotEmpty
-        ? user.profileImages.firstWhere(
-            (i) => i.isCurrent,
-            orElse: () => user.profileImages.first,
-          )
-        : null;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Avatar
-        GestureDetector(
-          onTap: () => _showImagesSheet(context, user),
-          child: Stack(
-            children: [
-              _buildAvatar(currentImage?.url, user.name, 80),
-              Positioned(
-                bottom: 0,
-                right: 0,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  padding: const EdgeInsets.all(4),
-                  child: const Icon(Icons.camera_alt, size: 14, color: Colors.white),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Name
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      user.name.isNotEmpty ? user.name : 'No name',
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.edit, size: 18),
-                    onPressed: () => _editField(
-                      context,
-                      label: 'Name',
-                      initial: user.name,
-                      onSave: (v) => UserService.instance.updateProfile(name: v),
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              // Email
-              Row(
-                children: [
-                  const Icon(Icons.email_outlined, size: 14, color: Colors.grey),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      user.email,
-                      style: const TextStyle(color: Colors.grey, fontSize: 13),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.edit, size: 16),
-                    onPressed: () => _editField(
-                      context,
-                      label: 'Email',
-                      initial: user.email,
-                      keyboardType: TextInputType.emailAddress,
-                      onSave: (v) => UserService.instance.updateProfile(email: v),
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              // Bio
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      user.bio.isNotEmpty ? user.bio : 'No bio',
-                      style: const TextStyle(fontSize: 13),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.edit, size: 16),
-                    onPressed: () => _editField(
-                      context,
-                      label: 'Bio',
-                      initial: user.bio,
-                      maxLines: 4,
-                      onSave: (v) => UserService.instance.updateProfile(bio: v),
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Stats row ───────────────────────────────────────────────────────────────
-
-class _StatsRow extends StatelessWidget {
-  const _StatsRow();
-
-  @override
-  Widget build(BuildContext context) {
-    return Selector<UserState, (int, int, int)>(
-      selector: (_, s) => (s.postsCount, s.followersCount, s.followingCount),
-      builder: (_, counts, __) {
-        final (posts, followers, following) = counts;
-        return Row(
-          children: [
-            _StatTile(label: 'Posts', value: posts),
-            _StatTile(label: 'Followers', value: followers),
-            _StatTile(label: 'Following', value: following),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _StatTile extends StatelessWidget {
-  const _StatTile({required this.label, required this.value});
-  final String label;
-  final int value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        children: [
-          Text(
-            '$value',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── About section ───────────────────────────────────────────────────────────
-
-class _AboutSection extends StatelessWidget {
-  const _AboutSection({required this.user});
-  final UserModel user;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('About', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        _InfoRow(
-          icon: Icons.link,
-          label: 'Website',
-          value: user.websiteUrl.isNotEmpty ? user.websiteUrl : '—',
-          onEdit: () => _editField(
-            context,
-            label: 'Website URL',
-            initial: user.websiteUrl,
-            keyboardType: TextInputType.url,
-            onSave: (v) => UserService.instance.updateProfile(websiteUrl: v),
-          ),
-        ),
-        _InfoRow(
-          icon: Icons.cake_outlined,
-          label: 'Birthday',
-          value: user.birthday != null
-              ? '${user.birthday!.day}/${user.birthday!.month}/${user.birthday!.year}'
-              : '—',
-          onEdit: () => _pickBirthday(context, user.birthday),
-        ),
-        _InfoRow(
-          icon: Icons.access_time_outlined,
-          label: 'Joined',
-          value: '${user.createdAt.day}/${user.createdAt.month}/${user.createdAt.year}',
-          onEdit: null,
-        ),
-        const SizedBox(height: 12),
-        // Add photo URL button
-        OutlinedButton.icon(
-          onPressed: () => _showImagesSheet(context, user),
-          icon: const Icon(Icons.add_a_photo_outlined, size: 16),
-          label: const Text('Manage Photos'),
-        ),
-      ],
-    );
-  }
-
-  void _pickBirthday(BuildContext context, DateTime? current) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: current ?? DateTime(1990),
-      firstDate: DateTime(1900),
-      lastDate: DateTime.now(),
-    );
-    if (picked != null) {
-      await UserService.instance.updateProfile(
-        birthday: picked.millisecondsSinceEpoch ~/ 1000,
-      );
-    }
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.onEdit,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-  final VoidCallback? onEdit;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: Colors.grey),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 72,
-            child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-          ),
-          Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 13)),
-          ),
-          if (onEdit != null)
-            IconButton(
-              icon: const Icon(Icons.edit, size: 16),
-              onPressed: onEdit,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Password section ────────────────────────────────────────────────────────
-
-class _PasswordSection extends StatelessWidget {
-  const _PasswordSection({required this.user});
-  final UserModel user;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Security', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: () => _changePassword(context),
-          icon: const Icon(Icons.lock_outline, size: 16),
-          label: const Text('Change Password'),
-        ),
-      ],
-    );
-  }
-
-  void _changePassword(BuildContext context) {
-    final newPassCtrl = TextEditingController();
-    final confirmCtrl = TextEditingController();
-    String? error;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => Padding(
-          padding: EdgeInsets.only(
-            left: 24,
-            right: 24,
-            top: 24,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Change Password',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              TextField(
-                controller: newPassCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'New Password',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: confirmCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Confirm Password',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              if (error != null) ...[
-                const SizedBox(height: 8),
-                Text(error!, style: const TextStyle(color: Colors.red, fontSize: 13)),
-              ],
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    if (newPassCtrl.text.length < 6) {
-                      setState(() => error = 'Min 6 characters');
-                      return;
-                    }
-                    if (newPassCtrl.text != confirmCtrl.text) {
-                      setState(() => error = 'Passwords do not match');
-                      return;
-                    }
-                    Navigator.pop(ctx);
-                    await UserService.instance.updateProfile(password: newPassCtrl.text);
-                  },
-                  child: const Text('Save'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Photos section ──────────────────────────────────────────────────────────
-
-class _PhotosSection extends StatelessWidget {
-  const _PhotosSection({required this.user});
-  final UserModel user;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Text('Photos', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const Spacer(),
-            TextButton(
-              onPressed: () => _showImagesSheet(context, user),
-              child: const Text('Edit'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            mainAxisSpacing: 4,
-            crossAxisSpacing: 4,
-          ),
-          itemCount: user.profileImages.length,
-          itemBuilder: (context, index) {
-            final img = user.profileImages[index];
-            return GestureDetector(
-              onTap: () => _setAsCurrent(img, user),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  CachedNetworkImage(
-                    imageUrl: img.url,
-                    fit: BoxFit.cover,
-                    placeholder: (_, __) => Container(
-                      color: Colors.grey[200],
-                      child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                    ),
-                    errorWidget: (_, __, ___) => Container(
-                      color: Colors.grey[200],
-                      child: const Icon(Icons.broken_image, color: Colors.grey),
-                    ),
-                  ),
-                  if (img.isCurrent)
-                    Positioned(
-                      top: 4,
-                      right: 4,
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: Colors.blue,
-                          shape: BoxShape.circle,
-                        ),
-                        padding: const EdgeInsets.all(2),
-                        child: const Icon(Icons.check, size: 12, color: Colors.white),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  void _setAsCurrent(ProfileImageModel selected, UserModel user) {
-    final updated = user.profileImages.map((img) {
-      return ProfileImageModel(
-        url: img.url,
-        albumName: img.albumName,
-        uploadedAt: img.uploadedAt,
-        isCurrent: img.url == selected.url,
-      );
-    }).toList();
-    UserService.instance.updateProfile(profileImages: updated);
-  }
-}
-
-// ─── Manage images bottom sheet ──────────────────────────────────────────────
-
-void _showImagesSheet(BuildContext context, UserModel user) {
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    ),
-    builder: (ctx) => _ImagesSheet(user: user),
-  );
-}
-
-class _ImagesSheet extends StatefulWidget {
-  const _ImagesSheet({required this.user});
-  final UserModel user;
-
-  @override
-  State<_ImagesSheet> createState() => _ImagesSheetState();
-}
-
-class _ImagesSheetState extends State<_ImagesSheet> {
-  late List<ProfileImageModel> _images;
-  final _urlCtrl = TextEditingController();
+  bool get _isOwn => widget.userId == UserState.instance.id;
 
   @override
   void initState() {
     super.initState();
+    _tabCtrl = TabController(length: 2, vsync: this);
+    _loadUser();
+    _scrollCtrl.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    final pos = _scrollCtrl.position;
+    if (pos.pixels >= pos.maxScrollExtent * 0.8 &&
+        !_loadingPosts &&
+        _hasMore) {
+      _loadPosts();
+    }
+  }
+
+  Future<void> _loadUser() async {
+    UserModel? user;
+    if (_isOwn) {
+      user = UserState.instance.user;
+      user ??= await UserService.instance.fetchUser(widget.userId);
+    } else {
+      user = await UserService.instance.fetchUser(widget.userId);
+    }
+    if (mounted) {
+      setState(() {
+        _profileUser = user;
+        _loadingUser = false;
+      });
+      _resetPosts();
+    }
+  }
+
+  Future<void> _resetPosts() async {
+    setState(() {
+      _posts.clear();
+      _hasMore = true;
+    });
+    await _loadPosts();
+  }
+
+  Future<void> _loadPosts() async {
+    if (_loadingPosts || !_hasMore) return;
+    setState(() => _loadingPosts = true);
+
+    final res = await PostService.instance.fetchPage(
+      offset: _posts.length,
+      authorId: widget.userId,
+    );
+
+    if (mounted && res['status'] == 'success') {
+      final data = res['data'] as Map<String, dynamic>;
+      final more = data['hasMore'] as bool;
+      final raw = (data['posts'] as List? ?? []);
+      final parsed = raw.map((e) {
+        final map = Map<String, dynamic>.from(e as Map);
+        final rc = map['reactionCounts'];
+        if (rc == null || rc is List) map['reactionCounts'] = <String, dynamic>{};
+        return PostModel.fromJson(map);
+      }).toList();
+
+      setState(() {
+        _posts.addAll(parsed);
+        _hasMore = more;
+      });
+    }
+    if (mounted) setState(() => _loadingPosts = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loadingUser) {
+      return Scaffold(
+          appBar: AppBar(),
+          body: const Center(child: CircularProgressIndicator(color: _fbBlue)));
+    }
+    if (_profileUser == null) {
+      return Scaffold(
+          appBar: AppBar(),
+          body: const Center(child: Text('User not found')));
+    }
+
+    final user = _profileUser!;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF0F2F5),
+      appBar: AppBar(
+        title: Text(user.name.isNotEmpty ? user.name : 'Profile',
+            style: const TextStyle(fontWeight: FontWeight.w700)),
+      ),
+      body: Column(
+        children: [
+          // ── Cover + avatar + info ─────────────────────────────────────
+          Container(
+            color: Colors.white,
+            child: Column(
+              children: [
+                _CoverAndAvatar(user: user),
+                _ProfileInfo(
+                  user: user,
+                  isOwn: _isOwn,
+                  onEdit: () => _showEditProfile(context, user),
+                ),
+                const SizedBox(height: 4),
+                // ── TabBar ──────────────────────────────────────────────
+                TabBar(
+                  controller: _tabCtrl,
+                  tabs: const [Tab(text: 'Posts'), Tab(text: 'Photos')],
+                  indicatorColor: _fbBlue,
+                  labelColor: _fbBlue,
+                  unselectedLabelColor: _fbGray,
+                  labelStyle: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ),
+          // ── Tab content ───────────────────────────────────────────────
+          Expanded(
+            child: TabBarView(
+              controller: _tabCtrl,
+              children: [
+                _PostsTab(
+                  posts: _posts,
+                  loading: _loadingPosts,
+                  hasMore: _hasMore,
+                  scrollCtrl: _scrollCtrl,
+                  onRefresh: _resetPosts,
+                ),
+                _PhotosTab(images: user.profileImages),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditProfile(BuildContext context, UserModel user) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => _EditProfileSheet(user: user, onSaved: _loadUser),
+    );
+  }
+}
+
+// ─── Cover photo + avatar ─────────────────────────────────────────────────────
+
+class _CoverAndAvatar extends StatelessWidget {
+  const _CoverAndAvatar({required this.user});
+  final UserModel user;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.bottomCenter,
+      children: [
+        // Cover photo
+        Container(
+          height: 180,
+          width: double.infinity,
+          color: const Color(0xFF8B9DC3),
+          child: user.avatarUrl.isNotEmpty
+              ? CachedNetworkImage(
+                  imageUrl: user.avatarUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (_, _) =>
+                      Container(color: const Color(0xFF8B9DC3)),
+                  errorWidget: (_, _, _) =>
+                      Container(color: const Color(0xFF8B9DC3)),
+                )
+              : null,
+        ),
+        // Avatar overlapping the cover bottom
+        Positioned(
+          bottom: -44,
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 4),
+            ),
+            child: PostAuthorAvatar(
+                name: user.name, avatarUrl: user.avatarUrl, size: 88),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Name + info + edit button ────────────────────────────────────────────────
+
+class _ProfileInfo extends StatelessWidget {
+  const _ProfileInfo(
+      {required this.user, required this.isOwn, required this.onEdit});
+  final UserModel user;
+  final bool isOwn;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 52, 16, 8),
+      child: Column(
+        children: [
+          Text(
+            user.name.isNotEmpty ? user.name : 'No name',
+            style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF050505)),
+          ),
+          const SizedBox(height: 2),
+          Text(user.email,
+              style: const TextStyle(color: _fbGray, fontSize: 13)),
+          Text(
+            'Joined ${user.createdAt.day}/${user.createdAt.month}/${user.createdAt.year}',
+            style: const TextStyle(color: _fbGray, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          if (isOwn)
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.tonal(
+                onPressed: onEdit,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFE4E6EB),
+                  foregroundColor: const Color(0xFF050505),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                child: const Text('Edit profile',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Posts tab ────────────────────────────────────────────────────────────────
+
+class _PostsTab extends StatelessWidget {
+  const _PostsTab({
+    required this.posts,
+    required this.loading,
+    required this.hasMore,
+    required this.scrollCtrl,
+    required this.onRefresh,
+  });
+
+  final List<PostModel> posts;
+  final bool loading;
+  final bool hasMore;
+  final ScrollController scrollCtrl;
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading && posts.isEmpty) {
+      return const Center(child: CircularProgressIndicator(color: _fbBlue));
+    }
+    if (posts.isEmpty) {
+      return const Center(
+          child: Text('No posts yet',
+              style: TextStyle(color: _fbGray, fontSize: 15)));
+    }
+    return RefreshIndicator(
+      color: _fbBlue,
+      onRefresh: onRefresh,
+      child: ListView.builder(
+        controller: scrollCtrl,
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: posts.length + (hasMore ? 1 : 0),
+        itemBuilder: (context, i) {
+          if (i == posts.length) {
+            return const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(
+                    child: CircularProgressIndicator(color: _fbBlue)));
+          }
+          return _ProfilePostCard(post: posts[i]);
+        },
+      ),
+    );
+  }
+}
+
+class _ProfilePostCard extends StatelessWidget {
+  const _ProfilePostCard({required this.post});
+  final PostModel post;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.white,
+      margin: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: () => PostDetailScreen.push(context, post.id),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(_formatDate(post.createdAt),
+                      style: const TextStyle(fontSize: 12, color: _fbGray)),
+                  const SizedBox(height: 6),
+                  Text(post.content,
+                      style: const TextStyle(
+                          fontSize: 15,
+                          height: 1.4,
+                          color: Color(0xFF050505)),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            if (post.imageUrls.isNotEmpty)
+              PostImageGrid(
+                  imageUrls: post.imageUrls, borderRadius: BorderRadius.zero),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Column(
+                children: [
+                  const SizedBox(height: 4),
+                  const Divider(height: 1),
+                  FullReactionBar(
+                    targetType: 'post',
+                    targetId: post.id,
+                    reactionCounts: post.reactionCounts,
+                    userReaction: post.userReaction,
+                    onComment: () => PostDetailScreen.push(context, post.id),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 60) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${dt.day}/${dt.month}/${dt.year}';
+  }
+}
+
+// ─── Photos tab ───────────────────────────────────────────────────────────────
+
+class _PhotosTab extends StatelessWidget {
+  const _PhotosTab({required this.images});
+  final List<ProfileImageModel> images;
+
+  @override
+  Widget build(BuildContext context) {
+    if (images.isEmpty) {
+      return const Center(
+          child: Text('No photos yet',
+              style: TextStyle(color: _fbGray, fontSize: 15)));
+    }
+    return GridView.builder(
+      padding: const EdgeInsets.all(2),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 2,
+        crossAxisSpacing: 2,
+      ),
+      itemCount: images.length,
+      itemBuilder: (context, i) {
+        final img = images[i];
+        return GestureDetector(
+          onTap: () => _openFullscreen(context, i),
+          child: CachedNetworkImage(
+            imageUrl: img.url,
+            fit: BoxFit.cover,
+            placeholder: (_, _) => Container(color: Colors.grey[200]),
+            errorWidget: (_, _, _) => Container(
+                color: Colors.grey[200],
+                child: const Icon(Icons.broken_image, color: Colors.grey)),
+          ),
+        );
+      },
+    );
+  }
+
+  void _openFullscreen(BuildContext context, int index) {
+    final urls = images.map((i) => i.url).toList();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _PhotoViewer(urls: urls, initialIndex: index),
+      ),
+    );
+  }
+}
+
+class _PhotoViewer extends StatefulWidget {
+  const _PhotoViewer({required this.urls, required this.initialIndex});
+  final List<String> urls;
+  final int initialIndex;
+
+  @override
+  State<_PhotoViewer> createState() => _PhotoViewerState();
+}
+
+class _PhotoViewerState extends State<_PhotoViewer> {
+  late final PageController _ctrl;
+  late int _current;
+
+  @override
+  void initState() {
+    super.initState();
+    _current = widget.initialIndex;
+    _ctrl = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text('${_current + 1} / ${widget.urls.length}'),
+      ),
+      body: PageView.builder(
+        controller: _ctrl,
+        itemCount: widget.urls.length,
+        onPageChanged: (i) => setState(() => _current = i),
+        itemBuilder: (_, i) => InteractiveViewer(
+          child: Center(
+            child: CachedNetworkImage(
+              imageUrl: widget.urls[i],
+              fit: BoxFit.contain,
+              placeholder: (_, _) => const Center(
+                  child: CircularProgressIndicator(color: Colors.white)),
+              errorWidget: (_, _, _) =>
+                  Icon(Icons.broken_image_outlined, size: 64, color: Colors.grey.shade600),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Edit profile sheet ───────────────────────────────────────────────────────
+
+class _EditProfileSheet extends StatefulWidget {
+  const _EditProfileSheet({required this.user, required this.onSaved});
+  final UserModel user;
+  final VoidCallback onSaved;
+
+  @override
+  State<_EditProfileSheet> createState() => _EditProfileSheetState();
+}
+
+class _EditProfileSheetState extends State<_EditProfileSheet> {
+  late final TextEditingController _nameCtrl;
+  late List<ProfileImageModel> _images;
+  final _urlCtrl = TextEditingController();
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.user.name);
     _images = List.from(widget.user.profileImages);
   }
 
   @override
   void dispose() {
+    _nameCtrl.dispose();
     _urlCtrl.dispose();
     super.dispose();
   }
@@ -573,56 +548,28 @@ class _ImagesSheetState extends State<_ImagesSheet> {
     final url = _urlCtrl.text.trim();
     if (url.isEmpty) return;
     setState(() {
-      _images.add(ProfileImageModel(
-        url: url,
-        albumName: '',
-        uploadedAt: DateTime.now(),
-        isCurrent: _images.isEmpty,
-      ));
+      _images.add(ProfileImageModel(url: url, createdAt: DateTime.now()));
       _urlCtrl.clear();
     });
   }
 
-  void _removeImage(int index) {
-    setState(() {
-      final wasActive = _images[index].isCurrent;
-      _images.removeAt(index);
-      if (wasActive && _images.isNotEmpty) {
-        _images[0] = ProfileImageModel(
-          url: _images[0].url,
-          albumName: _images[0].albumName,
-          uploadedAt: _images[0].uploadedAt,
-          isCurrent: true,
-        );
-      }
-    });
-  }
-
-  void _setCurrent(int index) {
-    setState(() {
-      _images = _images.asMap().entries.map((e) {
-        return ProfileImageModel(
-          url: e.value.url,
-          albumName: e.value.albumName,
-          uploadedAt: e.value.uploadedAt,
-          isCurrent: e.key == index,
-        );
-      }).toList();
-    });
-  }
-
   Future<void> _save() async {
+    setState(() => _loading = true);
     Navigator.pop(context);
-    await UserService.instance.updateProfile(profileImages: _images);
+    await UserService.instance.updateProfile(
+      name: _nameCtrl.text.trim(),
+      profileImages: _images,
+    );
+    widget.onSaved();
   }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 24,
+        left: 20,
+        right: 20,
+        top: 20,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
       child: Column(
@@ -631,214 +578,99 @@ class _ImagesSheetState extends State<_ImagesSheet> {
         children: [
           Row(
             children: [
-              const Text('Manage Photos',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text('Edit Profile',
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF050505))),
               const Spacer(),
-              ElevatedButton(onPressed: _save, child: const Text('Save')),
+              FilledButton(
+                onPressed: _loading ? null : _save,
+                style: FilledButton.styleFrom(backgroundColor: _fbBlue),
+                child: const Text('Save'),
+              ),
             ],
           ),
           const SizedBox(height: 16),
-          // Add URL field
+          TextField(
+            controller: _nameCtrl,
+            decoration: InputDecoration(
+              labelText: 'Name',
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8)),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: _fbBlue, width: 2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('Profile Photos',
+              style: TextStyle(
+                  fontWeight: FontWeight.w700, color: Color(0xFF050505))),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
                 child: TextField(
                   controller: _urlCtrl,
                   keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(
-                    labelText: 'Image URL',
+                  decoration: InputDecoration(
                     hintText: 'https://...',
-                    border: OutlineInputBorder(),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
                     isDense: true,
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              ElevatedButton(onPressed: _addImage, child: const Text('Add')),
+              FilledButton(
+                onPressed: _addImage,
+                style: FilledButton.styleFrom(backgroundColor: _fbBlue),
+                child: const Text('Add'),
+              ),
             ],
           ),
-          const SizedBox(height: 16),
-          if (_images.isEmpty)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Text('No photos yet', style: TextStyle(color: Colors.grey)),
-              ),
-            )
-          else
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 300),
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: _images.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final img = _images[index];
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: SizedBox(
-                        width: 56,
-                        height: 56,
-                        child: CachedNetworkImage(
-                          imageUrl: img.url,
-                          fit: BoxFit.cover,
-                          placeholder: (_, __) =>
-                              Container(color: Colors.grey[200]),
-                          errorWidget: (_, __, ___) => Container(
-                            color: Colors.grey[200],
-                            child: const Icon(Icons.broken_image, color: Colors.grey),
-                          ),
-                        ),
+          const SizedBox(height: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 200),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: _images.length,
+              itemBuilder: (context, i) {
+                final img = _images[i];
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: CachedNetworkImage(
+                        imageUrl: img.url,
+                        fit: BoxFit.cover,
+                        placeholder: (_, _) =>
+                            Container(color: Colors.grey[200]),
+                        errorWidget: (_, _, _) =>
+                            const Icon(Icons.broken_image, color: Colors.grey),
                       ),
                     ),
-                    title: Text(
-                      img.url,
+                  ),
+                  title: Text(img.url,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    subtitle: img.isCurrent
-                        ? const Text('Current avatar',
-                            style: TextStyle(color: Colors.blue, fontSize: 11))
-                        : null,
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (!img.isCurrent)
-                          TextButton(
-                            onPressed: () => _setCurrent(index),
-                            style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 8),
-                            ),
-                            child: const Text('Set avatar', style: TextStyle(fontSize: 12)),
-                          ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                          onPressed: () => _removeImage(index),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Shared helpers ──────────────────────────────────────────────────────────
-
-/// Google-style circle avatar: shows cached image or colored initial
-Widget _buildAvatar(String? imageUrl, String name, double size) {
-  if (imageUrl != null && imageUrl.isNotEmpty) {
-    return ClipOval(
-      child: CachedNetworkImage(
-        imageUrl: imageUrl,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        placeholder: (_, _) => _initialsAvatar(name, size),
-        errorWidget: (_, _, _) => _initialsAvatar(name, size),
-      ),
-    );
-  }
-  return _initialsAvatar(name, size);
-}
-
-Widget _initialsAvatar(String name, double size) {
-  final initials = name.isNotEmpty ? name.trim()[0].toUpperCase() : '?';
-  final color = _avatarColor(name);
-  return Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-    alignment: Alignment.center,
-    child: Text(
-      initials,
-      style: TextStyle(
-        color: Colors.white,
-        fontSize: size * 0.4,
-        fontWeight: FontWeight.bold,
-      ),
-    ),
-  );
-}
-
-Color _avatarColor(String name) {
-  const colors = [
-    Color(0xFF1A73E8),
-    Color(0xFF34A853),
-    Color(0xFFEA4335),
-    Color(0xFFFBBC05),
-    Color(0xFF9C27B0),
-    Color(0xFF00BCD4),
-    Color(0xFFFF5722),
-    Color(0xFF607D8B),
-  ];
-  if (name.isEmpty) return colors[0];
-  return colors[name.codeUnitAt(0) % colors.length];
-}
-
-/// Generic single-field edit bottom sheet
-void _editField(
-  BuildContext context, {
-  required String label,
-  required String initial,
-  required Future<UserModel?> Function(String) onSave,
-  TextInputType keyboardType = TextInputType.text,
-  int maxLines = 1,
-}) {
-  final ctrl = TextEditingController(text: initial);
-
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    ),
-    builder: (ctx) => Padding(
-      padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 24,
-        bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Edit $label',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          TextField(
-            controller: ctrl,
-            keyboardType: keyboardType,
-            maxLines: maxLines,
-            autofocus: true,
-            decoration: InputDecoration(
-              labelText: label,
-              border: const OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await onSave(ctrl.text.trim());
+                      style: const TextStyle(fontSize: 12)),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline,
+                        color: Colors.red, size: 18),
+                    onPressed: () => setState(() => _images.removeAt(i)),
+                  ),
+                );
               },
-              child: const Text('Save'),
             ),
           ),
         ],
       ),
-    ),
-  );
+    );
+  }
 }

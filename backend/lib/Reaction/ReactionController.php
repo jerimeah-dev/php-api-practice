@@ -2,7 +2,7 @@
 
 namespace lib\Reaction;
 
-use lib\Utils\Controller;
+use lib\Core\Controller;
 
 class ReactionController extends Controller
 {
@@ -13,6 +13,5 @@ class ReactionController extends Controller
         $this->service = new ReactionService();
     }
 
-    public function toggle(array $input)     { return $this->json($this->service->toggle($input)); }
-    public function getForPost(array $input) { return $this->json($this->service->getForPost($input)); }
+    public function toggle(array $input) { $this->json($this->service->toggle($input)); }
 }

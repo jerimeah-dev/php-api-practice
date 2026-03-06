@@ -1,43 +1,37 @@
 import 'dart:convert';
 import 'package:frontend/api/api.client.dart';
 
-class PostRepository {
-  static final instance = PostRepository._();
-  PostRepository._();
+class CommentRepository {
+  static final instance = CommentRepository._();
+  CommentRepository._();
 
   Future<Map<String, dynamic>> list({
+    required String postId,
     required String viewerId,
     required int limit,
     required int offset,
-    String? authorId,
   }) =>
       ApiClient.instance.post('/api.php', {
-        'method': 'post.list',
+        'method': 'comment.list',
+        'postId': postId,
         'viewerId': viewerId,
         'limit': limit,
         'offset': offset,
-        if (authorId != null) 'authorId': authorId,
-      });
-
-  Future<Map<String, dynamic>> getById({
-    required String id,
-    required String viewerId,
-  }) =>
-      ApiClient.instance.post('/api.php', {
-        'method': 'post.getById',
-        'id': id,
-        'viewerId': viewerId,
       });
 
   Future<Map<String, dynamic>> create({
     required String userId,
+    required String postId,
     required String content,
+    String? parentId,
     List<String>? imageUrls,
   }) =>
       ApiClient.instance.post('/api.php', {
-        'method': 'post.create',
+        'method': 'comment.create',
         'userId': userId,
+        'postId': postId,
         'content': content,
+        if (parentId != null) 'parentId': parentId,
         if (imageUrls != null) 'imageUrls': jsonEncode(imageUrls),
       });
 
@@ -47,12 +41,12 @@ class PostRepository {
     required List<String> imageUrls,
   }) =>
       ApiClient.instance.post('/api.php', {
-        'method': 'post.updateById',
+        'method': 'comment.updateById',
         'id': id,
         'content': content,
         'imageUrls': jsonEncode(imageUrls),
       });
 
   Future<Map<String, dynamic>> deleteById(String id) =>
-      ApiClient.instance.post('/api.php', {'method': 'post.deleteById', 'id': id});
+      ApiClient.instance.post('/api.php', {'method': 'comment.deleteById', 'id': id});
 }

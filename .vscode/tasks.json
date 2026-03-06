@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start PHP Backend",
+      "type": "shell",
+      "command": "php -S 127.0.0.1:12345 -t backend",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^PHP",
+          "endsPattern": "^PHP .* Development Server"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "label": "PHP Server"
+      }
+    }
+  ]
+}

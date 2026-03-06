@@ -2,158 +2,71 @@
 
 namespace lib\User;
 
-use lib\Utils\Database;
-use PDO;
+use lib\Core\Repository;
 
-class UserRepository
+class UserRepository extends Repository
 {
-    private PDO $db;
-
     public function __construct()
     {
-        $this->db = Database::get();
-        $this->db->exec("CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            email TEXT NOT NULL UNIQUE,
-            password TEXT NOT NULL,
-            name TEXT,
-            birthday INTEGER,
-            bio TEXT,
-            websiteUrl TEXT,
-            followersCount INTEGER NOT NULL DEFAULT 0,
-            followingCount INTEGER NOT NULL DEFAULT 0,
-            postsCount INTEGER NOT NULL DEFAULT 0,
-            createdAt INTEGER NOT NULL,
-            education TEXT NOT NULL DEFAULT '[]',
-            workExperience TEXT NOT NULL DEFAULT '[]',
-            profileImages TEXT NOT NULL DEFAULT '[]',
-            currentAvatarUrl TEXT NOT NULL DEFAULT ''
-        )");
-        try {
-            $this->db->exec("ALTER TABLE users ADD COLUMN currentAvatarUrl TEXT NOT NULL DEFAULT ''");
-        } catch (\Throwable $e) {
-            // Column already exists
-        }
+        parent::__construct();
+        $this->createTable();
     }
 
-    // ✅ CREATE
+    private function createTable(): void
+    {
+        $this->db->exec("CREATE TABLE IF NOT EXISTS users (
+            id            TEXT    PRIMARY KEY,
+            email         TEXT    NOT NULL UNIQUE,
+            password      TEXT    NOT NULL,
+            name          TEXT    NOT NULL DEFAULT '',
+            avatarUrl     TEXT    NOT NULL DEFAULT '',
+            profileImages TEXT    NOT NULL DEFAULT '[]',
+            createdAt     INTEGER NOT NULL
+        )");
+        try { $this->db->exec("ALTER TABLE users ADD COLUMN avatarUrl TEXT NOT NULL DEFAULT ''"); } catch (\Throwable) {}
+        try { $this->db->exec("ALTER TABLE users ADD COLUMN profileImages TEXT NOT NULL DEFAULT '[]'"); } catch (\Throwable) {}
+    }
+
     public function create(UserEntity $user): bool
     {
-        $stmt = $this->db->prepare(
-            "INSERT INTO users 
-            (id, email, password, name, birthday, bio, websiteUrl, followersCount, followingCount, postsCount, createdAt, education, workExperience, profileImages)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        return (bool) $this->execute(
+            "INSERT INTO users (id, email, password, name, avatarUrl, profileImages, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [$user->id, $user->email, $user->password, $user->name,
+             $user->avatarUrl, json_encode($user->profileImages), $user->createdAt]
         );
-
-        return $stmt->execute([
-            $user->id,
-            $user->email,
-            $user->password,
-            $user->name,
-            $user->birthday,
-            $user->bio,
-            $user->websiteUrl,
-            $user->followersCount,
-            $user->followingCount,
-            $user->postsCount,
-            $user->createdAt,
-            json_encode($user->education),
-            json_encode($user->workExperience),
-            json_encode($user->profileImages)
-        ]);
     }
 
-    // ✅ FIND BY ID
     public function findById(string $id): ?array
     {
-        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = ?");
-        $stmt->execute([$id]);
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        return $this->fetch("SELECT * FROM users WHERE id = ?", [$id]);
     }
 
-    // ✅ FIND BY EMAIL
     public function findByEmail(string $email): ?array
     {
-        $stmt = $this->db->prepare("SELECT * FROM users WHERE email = ?");
-        $stmt->execute([$email]);
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        return $this->fetch("SELECT * FROM users WHERE email = ?", [$email]);
     }
 
-    // ✅ CHECK EXISTENCE
     public function existsById(string $id): bool
     {
-        $stmt = $this->db->prepare("SELECT id FROM users WHERE id = ?");
-        $stmt->execute([$id]);
-        return (bool)$stmt->fetch();
+        return (bool) $this->fetch("SELECT id FROM users WHERE id = ?", [$id]);
     }
 
     public function existsByEmail(string $email): bool
     {
-        $stmt = $this->db->prepare("SELECT email FROM users WHERE email = ?");
-        $stmt->execute([$email]);
-        return (bool)$stmt->fetch();
+        return (bool) $this->fetch("SELECT id FROM users WHERE email = ?", [$email]);
     }
 
-    // ✅ UPDATE BY ID
     public function updateById(UserEntity $user): bool
     {
-        $stmt = $this->db->prepare(
-            "UPDATE users SET
-            email = ?, password = ?, name = ?, birthday = ?, bio = ?, websiteUrl = ?,
-            followersCount = ?, followingCount = ?, postsCount = ?, education = ?, workExperience = ?, profileImages = ?,
-            currentAvatarUrl = ?
-            WHERE id = ?"
+        return (bool) $this->execute(
+            "UPDATE users SET name = ?, avatarUrl = ?, profileImages = ? WHERE id = ?",
+            [$user->name, $user->avatarUrl, json_encode($user->profileImages), $user->id]
         );
-
-        return $stmt->execute([
-            $user->email,
-            $user->password,
-            $user->name,
-            $user->birthday,
-            $user->bio,
-            $user->websiteUrl,
-            $user->followersCount,
-            $user->followingCount,
-            $user->postsCount,
-            json_encode($user->education),
-            json_encode($user->workExperience),
-            json_encode($user->profileImages),
-            $user->currentAvatarUrl,
-            $user->id
-        ]);
     }
 
-    // ✅ UPDATE CURRENT AVATAR URL
-    public function updateCurrentAvatarUrl(string $userId, string $url): void
-    {
-        $stmt = $this->db->prepare("UPDATE users SET currentAvatarUrl = ? WHERE id = ?");
-        $stmt->execute([$url, $userId]);
-    }
-
-    // ✅ INCREMENT / DECREMENT POSTS COUNT
-    public function incrementPostsCount(string $userId): void
-    {
-        $stmt = $this->db->prepare("UPDATE users SET postsCount = postsCount + 1 WHERE id = ?");
-        $stmt->execute([$userId]);
-    }
-
-    public function decrementPostsCount(string $userId): void
-    {
-        $stmt = $this->db->prepare("UPDATE users SET postsCount = MAX(0, postsCount - 1) WHERE id = ?");
-        $stmt->execute([$userId]);
-    }
-
-    // ✅ DELETE BY ID
     public function deleteById(string $id): bool
     {
-        $stmt = $this->db->prepare("DELETE FROM users WHERE id = ?");
-        return $stmt->execute([$id]);
-    }
-
-    // ✅ LIST ALL USERS
-    public function getAll(): array
-    {
-        $stmt = $this->db->query("SELECT * FROM users");
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return (bool) $this->execute("DELETE FROM users WHERE id = ?", [$id]);
     }
 }

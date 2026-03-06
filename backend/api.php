@@ -2,31 +2,20 @@
 
 require_once __DIR__ . '/vendor/autoload.php';
 
+header('Content-Type: application/json');
+
 try {
+    $input = json_decode(file_get_contents('php://input'), true);
 
-    $php_input = file_get_contents('php://input');
-    $input = json_decode($php_input, true);
-    if ($input === null) {
-        $input = $_REQUEST;
-    }
-    if ($input === null || empty($input['method'])) {
-        throw new \Exception('No input provided');
+    if (!$input || empty($input['method'])) {
+        throw new \Exception('method is required');
     }
 
-    list($_class_name, $_method_name) = explode('.', trim($input['method']));
+    [$domain, $method] = explode('.', trim($input['method']), 2);
 
-    $class = 'lib\\' . ucfirst($_class_name) . '\\' . ucfirst($_class_name) . 'Controller';
-    $method = $_method_name;
+    $class = 'lib\\' . ucfirst($domain) . '\\' . ucfirst($domain) . 'Controller';
 
-    $controller = new $class();
-    $result = $controller->$method($input);
-
-    echo $result;
+    (new $class())->$method($input);
 } catch (\Throwable $e) {
-    header('Content-Type: application/json');
-
-    echo json_encode([
-        'status' => 'error',
-        'message' => $e->getMessage()
-    ]);
+    echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
 }

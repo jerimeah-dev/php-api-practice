@@ -2,7 +2,7 @@
 
 namespace lib\User;
 
-use lib\Utils\Controller;
+use lib\Core\Controller;
 
 class UserController extends Controller
 {
@@ -13,38 +13,9 @@ class UserController extends Controller
         $this->service = new UserService();
     }
 
-    public function register(array $input)
-    {
-        return $this->json($this->service->register($input));
-    }
-
-    public function login(array $input)
-    {
-        return $this->json($this->service->login($input));
-    }
-
-    public function findById(array $input)
-    {
-        return $this->json($this->service->findById($input));
-    }
-
-    public function findByEmail(array $input)
-    {
-        return $this->json($this->service->findByEmail($input));
-    }
-
-    public function updateById(array $input)
-    {
-        return $this->json($this->service->updateById($input));
-    }
-
-    public function deleteById(array $input)
-    {
-        return $this->json($this->service->deleteById($input));
-    }
-
-    public function listAll(array $input)
-    {
-        return $this->json($this->service->listAll());
-    }
+    public function register(array $input)   { $this->json($this->service->register($input)); }
+    public function login(array $input)      { $this->json($this->service->login($input)); }
+    public function findById(array $input)   { $this->json($this->service->findById($input)); }
+    public function updateById(array $input) { $this->json($this->service->updateById($input)); }
+    public function deleteById(array $input) { $this->json($this->service->deleteById($input)); }
 }

@@ -1,28 +1,32 @@
 # CLAUDE.md
 
-## Project Stack
+## Project Overview
 
-- **Backend:** Vanilla PHP (no framework), SQLite via PDO, PSR-4 autoload with Composer
+A semi-social media / forum app. Users create profiles, write posts and comments, reply to comments (one level deep), and react to posts or comments with Facebook-style reactions. Images are URL-only (no file uploads).
+
+- **Backend:** Vanilla PHP 8.x, SQLite 3 via PDO, PSR-4 autoload with Composer
 - **Frontend:** Flutter, `provider` (ChangeNotifier), `go_router`, `dio`
 
 ---
 
 ## Backend Architecture
 
-### Structure
+### Directory Structure
 
 ```
 backend/
   api.php
   lib/
     {Domain}/
-      {Domain}Controller.php
-      {Domain}Service.php
-      {Domain}Repository.php
-      {Domain}Entity.php
-    Utils/
-      Controller.php
-      Database.php
+      {Domain}Controller.php   # HTTP adapter (one-liners only)
+      {Domain}Service.php      # Validation + business logic + JSend response
+      {Domain}Repository.php   # SQL queries only
+      {Domain}Entity.php       # Typed data container
+    Core/
+      Controller.php           # abstract — json() output only
+      Repository.php           # abstract — PDO helpers (fetch, execute, fetchAll)
+      Database.php             # Singleton PDO instance
+      Jsend.php                # Static JSend builder (used by Services)
 ```
 
 ### Routing
@@ -33,274 +37,640 @@ backend/
 
 ---
 
-### Backend Layer Responsibilities
+### Database
+
+- SQLite at `./database/database.db`.
+- `Database::get()` returns a **singleton** PDO instance (one connection per request).
+- **`PRAGMA foreign_keys = ON`** is executed inside `Database::get()` — cascades are enforced.
+- Always prepared statements — never interpolate values into SQL.
+- IDs: `bin2hex(random_bytes(8))` — 16-char hex, collision-checked with `existsById`.
+- Timestamps: Unix integers (`time()`). `updatedAt` is set to `time()` on create AND on every update.
+- Array columns: stored as JSON text. Service decodes on read; Repository encodes on write.
+
+### Database Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+    id             TEXT    PRIMARY KEY,
+    email          TEXT    NOT NULL UNIQUE,
+    password       TEXT    NOT NULL,
+    name           TEXT    NOT NULL DEFAULT '',
+    -- avatarUrl: denormalized. Always synced to profileImages[0].url by UserService.
+    avatarUrl      TEXT    NOT NULL DEFAULT '',
+    -- profileImages: full history, newest-first. Each entry: {"url":"...","createdAt":unix}
+    profileImages  TEXT    NOT NULL DEFAULT '[]',
+    createdAt      INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS posts (
+    id         TEXT    PRIMARY KEY,
+    userId     TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content    TEXT    NOT NULL,
+    -- imageUrls: JSON array of URL strings. [] = no images.
+    imageUrls  TEXT    NOT NULL DEFAULT '[]',
+    createdAt  INTEGER NOT NULL,
+    updatedAt  INTEGER NOT NULL
+);
+
+-- Single-level nesting only. parentId NULL = comment; non-NULL = reply.
+CREATE TABLE IF NOT EXISTS comments (
+    id         TEXT    PRIMARY KEY,
+    userId     TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    postId     TEXT    NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    parentId   TEXT             REFERENCES comments(id) ON DELETE CASCADE,
+    content    TEXT    NOT NULL,
+    -- imageUrls: JSON array of URL strings. [] = no images.
+    imageUrls  TEXT    NOT NULL DEFAULT '[]',
+    createdAt  INTEGER NOT NULL,
+    updatedAt  INTEGER NOT NULL
+);
+
+-- One reaction per user per target. targetType = 'post' | 'comment'.
+CREATE TABLE IF NOT EXISTS reactions (
+    userId     TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    targetType TEXT    NOT NULL,
+    targetId   TEXT    NOT NULL,
+    type       TEXT    NOT NULL,  -- 'Like'|'Love'|'Haha'|'Wow'|'Sad'|'Angry'
+    createdAt  INTEGER NOT NULL,
+    UNIQUE(userId, targetType, targetId)
+);
+```
+
+**Migration pattern** — add columns to existing tables safely:
+```php
+try {
+    $db->exec("ALTER TABLE posts ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0");
+} catch (\Throwable) { /* already exists */ }
+```
+
+---
+
+### Core Base Classes
+
+#### Core\Database — Singleton PDO
+
+```php
+class Database
+{
+    private static ?PDO $instance = null;
+
+    public static function get(): PDO
+    {
+        if (self::$instance === null) {
+            self::$instance = new PDO('sqlite:' . __DIR__ . '/../../database/database.db');
+            self::$instance->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            self::$instance->exec('PRAGMA foreign_keys = ON');
+        }
+        return self::$instance;
+    }
+}
+```
+
+#### Core\Repository — abstract PDO helpers
+
+```php
+abstract class Repository
+{
+    protected PDO $db;
+
+    public function __construct() { $this->db = Database::get(); }
+
+    protected function execute(string $sql, array $params = []): \PDOStatement
+    {
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt;
+    }
+
+    protected function fetch(string $sql, array $params = []): ?array
+    {
+        return $this->execute($sql, $params)->fetch(\PDO::FETCH_ASSOC) ?: null;
+    }
+
+    protected function fetchAll(string $sql, array $params = []): array
+    {
+        return $this->execute($sql, $params)->fetchAll(\PDO::FETCH_ASSOC);
+    }
+}
+```
+
+#### Core\Controller — HTTP output only
+
+```php
+abstract class Controller
+{
+    protected function json(array $data): void
+    {
+        header('Content-Type: application/json');
+        echo json_encode($data);
+    }
+}
+```
+
+#### Core\Jsend — static response builder (used by Services)
+
+```php
+class Jsend
+{
+    public static function success(array $data): array { return ['status' => 'success', 'data' => $data]; }
+    public static function fail(array $data): array    { return ['status' => 'fail',    'data' => $data]; }
+    public static function error(string $msg): array   { return ['status' => 'error',   'message' => $msg]; }
+}
+```
+
+---
+
+### Abstraction Principles
+
+```
+Request → Controller → Service → Repository → Database
+            (HTTP)     (Logic)     (SQL)        (PDO)
+```
+
+| Principle | Application |
+|---|---|
+| **Loose coupling** | Swap a Repository without touching the Service. |
+| **Code reuse** | `Core\Repository` provides PDO helpers — zero boilerplate in domain repos. |
+| **Enforced contracts** | Abstract base classes guarantee structure across all domains. |
+| **Single responsibility** | Entity = data. Repository = SQL. Service = logic. Controller = HTTP. |
+| **Testability** | Inject a test PDO into `Database`; mock repositories in unit tests. |
+
+**Hard rules:**
+- A layer MUST NOT skip levels. Controller → Service → Repository. Never Controller → Repository.
+- All domain repositories MUST extend `Core\Repository`.
+- All domain controllers MUST extend `Core\Controller`.
+- Services are standalone — they do NOT extend any base class. They use `Jsend::` for responses.
+- Cross-cutting concerns (logging, auth) go into `Core/` — never into domain classes.
+
+---
+
+### Layer Responsibilities
 
 #### Entity — typed data container only
 
 ```php
-class UserEntity
+class PostEntity
 {
     public string $id;
-    public string $email;
-    public string $password;      // always hashed before set
-    public ?string $name = '';
-    public ?int $birthday = null; // unix timestamp
-    public int $followersCount = 0;
-    public int $createdAt;
-    public array $education = []; // decoded PHP array; repo JSON-encodes on write
+    public string $userId;
+    public string $content;
+    public array  $imageUrls = [];  // decoded PHP array; Repository JSON-encodes on write
+    public int    $createdAt;
+    public int    $updatedAt;
 }
 ```
 
 Rules:
 - Public typed properties only. No methods, no validation, no logic.
-- Array properties hold decoded PHP arrays; the Repository encodes/decodes JSON.
+- Array properties hold decoded PHP arrays. Repository JSON-encodes on write.
 
 ---
 
-#### Repository — raw DB queries only
+#### Repository — SQL queries only
 
 ```php
-class UserRepository
+class PostRepository extends Repository
 {
-    public function create(UserEntity $user): bool     { /* INSERT */ }
-    public function findById(string $id): ?array       { /* SELECT */ }
-    public function findByEmail(string $email): ?array { /* SELECT */ }
-    public function existsById(string $id): bool       { /* SELECT, cast bool */ }
-    public function existsByEmail(string $email): bool { /* SELECT, cast bool */ }
-    public function updateById(UserEntity $user): bool { /* UPDATE */ }
-    public function deleteById(string $id): bool       { /* DELETE */ }
-    public function getAll(): array                    { /* SELECT * */ }
+    public function __construct() { parent::__construct(); $this->createTable(); }
+
+    private function createTable(): void
+    {
+        $this->db->exec("CREATE TABLE IF NOT EXISTS posts (...)");
+        // Run ALTER TABLE migrations here too
+    }
+
+    public function create(PostEntity $post): bool { /* INSERT */ }
+    public function findById(string $id): ?array   { /* SELECT + JOIN users */ }
+    public function list(int $limit, int $offset, ?string $authorId): array { /* SELECT + JOIN */ }
+    public function countAll(?string $authorId): int { /* SELECT COUNT */ }
+    public function updateById(PostEntity $post): bool { /* UPDATE */ }
+    public function deleteById(string $id): bool  { /* DELETE */ }
+    public function existsById(string $id): bool  { /* SELECT */ }
 }
 ```
 
 Rules:
-- ONLY PDO prepared statements. No logic, no validation, no response building.
-- Returns raw types: `?array`, `array`, `bool`. Never a JSend response.
-- Always prepared statements — never interpolate values into SQL.
-- JSON-encode array columns on write; Service decodes them on read.
+- Extends `Core\Repository`. Use `$this->execute()`, `$this->fetch()`, `$this->fetchAll()`.
+- Returns raw types: `?array`, `array`, `bool`, `int`. Never a JSend response.
+- JOINs with `users` table are done here when authorName/authorAvatarUrl are needed.
+- JSON-encode array columns on write: `json_encode($entity->imageUrls)`.
+- Returns raw SQLite row data — array columns are still JSON strings at this point.
 
 ---
 
 #### Service — validation, business logic, response assembly
 
 ```php
-class UserService
+class PostService
 {
-    public UserRepository $repo;
+    private PostRepository $repo;
+    private ReactionRepository $reactionRepo;
 
-    public function register(array $input): array
+    public function __construct()
     {
-        $email = trim($input['email'] ?? '');
-        $password = $input['password'] ?? '';
+        $this->repo = new PostRepository();
+        $this->reactionRepo = new ReactionRepository();
+    }
 
-        if (!$email || !$password)
-            return ['status' => 'fail', 'data' => ['email' => 'Email and password required']];
+    public function create(array $input): array
+    {
+        $userId  = trim($input['userId'] ?? '');
+        $content = trim($input['content'] ?? '');
+        if (!$userId || !$content)
+            return Jsend::fail(['content' => 'userId and content are required']);
 
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL))
-            return ['status' => 'fail', 'data' => ['email' => 'Invalid email format']];
+        $imageUrls = json_decode($input['imageUrls'] ?? '[]', true) ?? [];
 
-        if ($this->repo->existsByEmail($email))
-            return ['status' => 'fail', 'data' => ['email' => 'Email already registered']];
-
-        do { $id = bin2hex(random_bytes(8)); } while ($this->repo->existsById($id));
-
-        $entity = new UserEntity();
-        $entity->id = $id;
-        $entity->email = $email;
-        $entity->password = password_hash($password, PASSWORD_DEFAULT);
+        $entity = new PostEntity();
+        $entity->id        = bin2hex(random_bytes(8));
+        $entity->userId    = $userId;
+        $entity->content   = $content;
+        $entity->imageUrls = $imageUrls;
         $entity->createdAt = time();
+        $entity->updatedAt = time();
 
         $this->repo->create($entity);
-        $row = $this->repo->findById($id);
+        $row = $this->repo->findById($entity->id);
+        return Jsend::success(['post' => $this->preparePost($row, $userId)]);
+    }
 
-        unset($row['password']); // never return password
-
-        return ['status' => 'success', 'data' => ['user' => $row]];
+    private function preparePost(array $row, string $viewerId): array
+    {
+        $row['imageUrls']     = json_decode($row['imageUrls'], true) ?? [];
+        $row['reactionCounts'] = $this->reactionRepo->getCountsForTarget('post', $row['id']);
+        $row['userReaction']  = $viewerId ? $this->reactionRepo->getUserReaction('post', $row['id'], $viewerId) : null;
+        return $row;
     }
 }
 ```
 
 Rules:
 - ALL validation and input sanitization here.
-- ALL business logic here: ID generation, password hashing, merge-on-update.
-- Build Entity here; pass it to Repository.
-- Decode JSON columns from DB rows here: `json_decode($row['education'], true) ?? []`
-- **Always `unset($row['password'])` before returning user data in a response.**
-- Return JSend-shaped arrays (see API Contract below).
-- Never access the DB directly — always through Repository.
+- ALL business logic: ID generation, password hashing, merge-on-update, `updatedAt = time()`.
+- Build Entity here; pass to Repository.
+- **Decode all JSON array columns** from raw DB rows before building response:
+  - `json_decode($row['imageUrls'], true) ?? []`
+  - `json_decode($row['profileImages'], true) ?? []`
+- **Attach reaction data** to every post/comment row before returning (use batch queries for lists).
+- `unset($row['password'])` before returning any user data.
+- Return responses via `Jsend::success([...])` / `Jsend::fail([...])` / `Jsend::error('...')`.
+- Never access DB directly — always through Repository.
+- **Image URL validation:** `filter_var($url, FILTER_VALIDATE_URL)`. Optionally `get_headers()` check — if headers fail (bot blocking), allow anyway. Frontend `errorWidget` handles broken images.
+- `updatedAt` rule: set to `time()` on CREATE (same value as `createdAt`). Update to `time()` on every UPDATE.
 
 ---
 
 #### Controller — HTTP adapter only
 
 ```php
-class UserController extends Controller
+class PostController extends Controller
 {
-    private UserService $service;
-    public function __construct() { $this->service = new UserService(); }
+    private PostService $service;
+    public function __construct() { $this->service = new PostService(); }
 
-    public function register(array $input)   { return $this->json($this->service->register($input)); }
-    public function login(array $input)      { return $this->json($this->service->login($input)); }
-    public function updateById(array $input) { return $this->json($this->service->updateById($input)); }
-    public function deleteById(array $input) { return $this->json($this->service->deleteById($input)); }
-    public function listAll(array $input)    { return $this->json($this->service->listAll()); }
-    public function findById(array $input)   { return $this->json($this->service->findById($input)); }
+    public function create(array $input)     { $this->json($this->service->create($input)); }
+    public function list(array $input)       { $this->json($this->service->list($input)); }
+    public function getById(array $input)    { $this->json($this->service->getById($input)); }
+    public function updateById(array $input) { $this->json($this->service->updateById($input)); }
+    public function deleteById(array $input) { $this->json($this->service->deleteById($input)); }
 }
 ```
 
 Rules:
-- Each method is ONE line: call service method, wrap in `$this->json()`, return.
+- Each method is ONE line: call service, wrap in `$this->json()`.
 - No validation, no conditionals, no business logic.
-- Never call `$this->service->repo` directly — always call a service method.
+- Never call `$this->service->repo` — always call a service method.
 
 ---
 
 ### Response Format — JSend Standard
 
-**Success:**
 ```json
-{ "status": "success", "data": { "user": { "id": "...", "email": "..." } } }
+{ "status": "success", "data": { "post": {...} } }
+{ "status": "fail",    "data": { "content": "Content is required" } }
+{ "status": "error",   "message": "An unexpected error occurred" }
 ```
 
-**Fail** (client error — bad input, duplicate, not found):
-```json
-{ "status": "fail", "data": { "email": "Email already registered" } }
-```
-
-**Error** (server fault — unexpected exception):
-```json
-{ "status": "error", "message": "An unexpected error occurred" }
-```
-
-Rules:
-- All success payload inside `"data"` — never at the top level.
-- `"fail"` `data` = map of field → reason.
-- `"error"` has `message`, no `data`.
-- Never return `password` in any response.
+- All success payload inside `"data"`.
+- `"fail"` data = `{ fieldName: "reason" }`.
+- `"error"` has `message` only, no `data`.
+- Never return `password`.
 
 ---
 
-### Database
-
-- SQLite at `./database/database.db`. `Database::get()` returns new PDO each call.
-- Always prepared statements.
-- IDs: `bin2hex(random_bytes(8))` — 16-char hex, collision-checked with `existsById`.
-- Timestamps: Unix integers (`time()`).
-- Array columns: JSON text in DB. Service decodes on read with `json_decode($val, true) ?? []`.
-
 ### Auth
 
-- Passwords: `password_hash($p, PASSWORD_DEFAULT)` / `password_verify()`.
-- No JWT/sessions currently. Credential-based per request.
+- `password_hash($p, PASSWORD_DEFAULT)` / `password_verify()`.
+- No JWT/sessions. `userId` is sent in the body of every protected request.
 
 ### PHP Naming
 
 - camelCase methods and properties.
-- CRUD: `create`, `findById`, `findByEmail`, `existsById`, `updateById`, `deleteById`, `getAll`.
-- Business: `register`, `login`, `listAll`.
+- CRUD: `create`, `findById`, `existsById`, `updateById`, `deleteById`.
+- Paginated fetch: `list(array $input)`.
+- Business: `register`, `login`.
+
+---
+
+## API Contract
+
+All requests: `POST /api.php` with JSON body `{"method": "domain.action", ...params}`.
+
+### Endpoints
+
+| Method | Params | Success `data` shape |
+|---|---|---|
+| `user.register` | email, password, name? | `{"user": {...}}` |
+| `user.login` | email, password | `{"user": {...}}` |
+| `user.findById` | id | `{"user": {...}}` |
+| `user.updateById` | id, name?, profileImages? | `{"user": {...}}` |
+| `user.deleteById` | id | `{"message": "User deleted"}` |
+| `post.list` | viewerId, limit, offset, authorId? | `{"posts": [...], "total": 42, "hasMore": true}` |
+| `post.getById` | id, viewerId | `{"post": {...}}` |
+| `post.create` | userId, content, imageUrls? | `{"post": {...}}` |
+| `post.updateById` | id, content?, imageUrls? | `{"post": {...}}` |
+| `post.deleteById` | id | `{"message": "Post deleted"}` |
+| `comment.list` | postId, viewerId, limit, offset | `{"comments": [...], "hasMore": false}` |
+| `comment.create` | userId, postId, content, parentId?, imageUrls? | `{"comment": {...}}` |
+| `comment.updateById` | id, content?, imageUrls? | `{"comment": {...}}` |
+| `comment.deleteById` | id | `{"message": "Comment deleted"}` |
+| `reaction.toggle` | userId, targetType, targetId, type | `{"action": "added"/"removed"/"changed", "reactionCounts": {...}, "userReaction": "Like"/null}` |
+
+**Param notes:**
+- `viewerId` — logged-in user's ID. Backend uses it to compute `userReaction` on each item. Pass `""` for unauthenticated (userReaction will be `null`).
+- `authorId` (optional on `post.list`) — filter to a specific user's posts. Omit for global feed.
+- `parentId` (optional on `comment.create`) — creates a reply if provided; top-level comment if omitted/null.
+- `imageUrls` — JSON-encoded string: `jsonEncode(["https://..."])`. Send `"[]"` to clear images.
+- `profileImages` — JSON-encoded string of full replacement array.
+
+### Reaction types (exact strings, case-sensitive)
+`Like`, `Love`, `Haha`, `Wow`, `Sad`, `Angry`
+
+### Pagination
+```json
+{ "status": "success", "data": { "posts": [...], "total": 42, "hasMore": true } }
+```
+- `total`: total matching rows.
+- `hasMore`: `true` when `offset + len(page) < total`.
+
+### Comment / Reply rules
+- `parentId = null` → top-level comment.
+- `parentId = <commentId>` → reply to that comment.
+- Backend **rejects** if target parent already has a non-null `parentId` (no 3rd-level): returns `fail {"parentId": "Replies cannot be nested"}`.
+- `comment.list` returns a **flat array** of ALL comments and replies for the post, sorted `createdAt ASC`. Frontend groups them: collect replies where `reply.parentId == comment.id`.
+
+### Data Shapes
+
+**User** (password never returned):
+```json
+{
+  "id": "abc123",
+  "email": "alice@example.com",
+  "name": "Alice",
+  "avatarUrl": "https://...",
+  "profileImages": [
+    { "url": "https://img-new.jpg", "createdAt": 1709123456 },
+    { "url": "https://img-old.jpg", "createdAt": 1700000000 }
+  ],
+  "createdAt": 1700000000
+}
+```
+- `profileImages`: full history, newest first. Frontend manages ordering.
+- `avatarUrl`: always `profileImages[0].url`, synced by `UserService` on every update. Never set directly.
+- `profileImages` on `user.updateById`: frontend sends the **complete replacement array** (JSON-encoded). Backend stores it as-is and syncs `avatarUrl`.
+
+**Post** (includes denormalized author):
+```json
+{
+  "id": "abc123",
+  "userId": "user1",
+  "authorName": "Alice",
+  "authorAvatarUrl": "https://...",
+  "content": "Hello world",
+  "imageUrls": ["https://img1.jpg", "https://img2.jpg"],
+  "reactionCounts": { "Like": 3, "Love": 1 },
+  "userReaction": "Like",
+  "createdAt": 1709123456,
+  "updatedAt": 1709123456
+}
+```
+
+**Comment** (includes denormalized author):
+```json
+{
+  "id": "cmt1",
+  "postId": "abc123",
+  "parentId": null,
+  "userId": "user1",
+  "authorName": "Alice",
+  "authorAvatarUrl": "https://...",
+  "content": "Great post!",
+  "imageUrls": ["https://img.jpg"],
+  "reactionCounts": { "Like": 2 },
+  "userReaction": null,
+  "createdAt": 1709123456,
+  "updatedAt": 1709123456
+}
+```
+
+Backend JOINs `users` on all post/comment queries to include `authorName` and `authorAvatarUrl`.
+
+### Critical: reactionCounts empty-state
+
+PHP `json_encode([])` produces `[]` (JSON array), not `{}` (JSON object). When there are no reactions the backend returns `"reactionCounts": []`. Dart parses `[]` as `List`, not `Map`.
+
+**Frontend Service MUST normalize before `Model.fromJson`:**
+```dart
+final rc = map['reactionCounts'];
+if (rc == null || rc is List) map['reactionCounts'] = <String, dynamic>{};
+```
+
+### Array columns — wire format
+
+| Direction | What happens |
+|---|---|
+| **Backend → Frontend** | Service decodes JSON string columns (`json_decode($row['imageUrls'], true) ?? []`) before building response. `json_encode()` of the full response turns PHP arrays into proper JSON arrays. Frontend receives `[...]` not `"[...]"`. |
+| **Frontend → Backend** | Repository sends JSON-encoded string: `'imageUrls': jsonEncode(urls)`. Backend Service decodes: `json_decode($input['imageUrls'] ?? '[]', true) ?? []`. |
+
+Frontend `_decodeList` is a **defensive type-cast helper**, not a JSON string decoder:
+```dart
+/// Converts dynamic (List or null) → List<Map<String,dynamic>>.
+/// Handles String as a safety net in case backend forgot to decode.
+List<Map<String, dynamic>> _decodeList(dynamic value) {
+  if (value == null) return [];
+  if (value is List) return value.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  if (value is String && value.isNotEmpty) {
+    final decoded = jsonDecode(value);
+    if (decoded is List) return decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+  return [];
+}
+```
+
+For `imageUrls` (List<String>, not List<Map>), cast directly in `fromJson`:
+```dart
+imageUrls: (json['imageUrls'] as List? ?? []).cast<String>(),
+```
 
 ---
 
 ## Frontend Architecture
 
-### Structure
+### Directory Structure
 
 ```
 frontend/lib/
   main.dart
   router/
-    router.dart              # GoRouter + globalNavigatorKey + globalContext
+    router.dart              # GoRouter config + globalNavigatorKey + globalContext
   api/
     api.client.dart          # Singleton Dio wrapper
   models/
-    {domain}/
-      {domain}.model.dart
+    user/user.model.dart
+    post/post.model.dart
+    comment/comment.model.dart
   repositories/
-    {domain}/
-      {domain}.repository.dart
+    user/user.repository.dart
+    post/post.repository.dart
+    comment/comment.repository.dart
+    reaction/reaction.repository.dart
   services/
-    {domain}/
-      {domain}.services.dart
+    user/user.services.dart
+    post/post.services.dart
+    comment/comment.services.dart
+    reaction/reaction.services.dart
   states/
-    {domain}/
-      {domain}.state.dart
+    user/user.state.dart
+    post/post.state.dart
+    comment/comment.state.dart
   screens/
-    {domain}/                         # Single-screen domain
-      {domain}.screen.dart
-    {domain}/                         # Multi-screen domain
-      {action}/
-        {domain}.{action}.screen.dart
-    widgets/
+    home/
+      home.screen.dart
+    auth/
+      login/auth.login.screen.dart
+      register/auth.register.screen.dart
+    profile/
+      profile.screen.dart
+    post/
+      detail/post.detail.screen.dart
+      form/post.form.screen.dart
+  widgets/
+    post_author_avatar.dart
+    reaction_bar.dart
+    post_image_grid.dart
 ```
 
-**Screen file naming:**
-- Single screen: `screens/home/home.screen.dart` → class `HomeScreen`
-- Multi screen: `screens/auth/login/auth.login.screen.dart` → class `LoginScreen`
-- Multi screen: `screens/post/detail/post.detail.screen.dart` → class `PostDetailScreen`
+### Screens & Navigation
 
-### File & Class Naming
+| Screen | Route | Class |
+|---|---|---|
+| Home (global feed) | `/` | `HomeScreen` |
+| Login | `/login` | `LoginScreen` |
+| Register | `/register` | `RegisterScreen` |
+| Profile | `/profile/:id` | `ProfileScreen` |
+| Post detail | `/post/:id` | `PostDetailScreen` |
+| Post create/edit | `/post/form` | `PostFormScreen` |
 
-- Files: `{name}.{type}.dart` — e.g. `user.model.dart`, `api.client.dart`.
-- Classes: `{Name}{Type}` — e.g. `UserModel`, `UserService`, `UserState`, `UserRepository`, `ApiClient`.
+**Navigation flow:**
+- App start → `UserState.id.isEmpty` → redirect to `/login`, else `/`.
+- Home: FAB creates post → `PostFormScreen.push`. Tap post card → `PostDetailScreen.push`. Tap author → `ProfileScreen.push`.
+- PostDetail: shows post body + image gallery + reaction bar + paginated comments with inline replies.
+- Profile: two tabs — **Posts** (infinite scroll, `post.list` with `authorId`) and **Photos** (grid of `profileImages` entries). Own profile shows Edit button.
+- Login/Register use `NoTransitionPage`. All others use standard `builder`.
 
-### Images
-
-- **Always use `CachedNetworkImage`** for all network images — never `Image.network`.
-- Always provide `placeholder` and `errorWidget` builders.
-- Wrap in `ClipOval` for circular avatars, `ClipRRect` for rounded rectangles.
-- When no image is set, show a Google-style initials avatar: colored circle + first letter of name.
+**Static screen members (required on every screen):**
+```dart
+class HomeScreen extends StatelessWidget {
+  static const String routeName = '/';
+  static void go(BuildContext ctx)   => ctx.go(routeName);
+  static void push(BuildContext ctx) => ctx.push(routeName);
+}
+```
+Navigate ONLY via `ScreenName.go(ctx)` or `ScreenName.push(ctx)` — never with raw strings.
 
 ---
 
-### Frontend Layer Responsibilities
+### File & Class Naming
 
-#### Models — pure data structures only
+- Files: `{name}.{type}.dart` — e.g. `user.model.dart`, `post.services.dart`.
+- Classes: `{Name}{Type}` — e.g. `UserModel`, `PostService`, `CommentState`, `ReactionRepository`.
 
+### Images
+
+- **Always `CachedNetworkImage`** — never `Image.network`.
+- Always provide `placeholder` and `errorWidget`.
+- `errorWidget`: colored container with broken-image icon. Never blank, never crash.
+- Circular avatars: `ClipOval`. Rounded rect images: `ClipRRect`.
+- Empty `avatarUrl`: show Google-style initials avatar (colored circle + first letter of name).
+
+---
+
+### Frontend Models
+
+#### UserModel
 ```dart
 class UserModel {
   final String id;
   final String email;
   final String name;
-  final DateTime? birthday;
-  final int followersCount;
+  final String avatarUrl;
+  final List<ProfileImageModel> profileImages;  // full history, newest first
   final DateTime createdAt;
-  final List<EducationModel> education;
+}
 
-  const UserModel({required this.id, required this.email, ...});
-
-  factory UserModel.fromJson(Map<String, dynamic> json) => UserModel(
-    id: json['id'] ?? '',
-    // Timestamps: backend sends Unix seconds → multiply by 1000
-    birthday: json['birthday'] != null
-        ? DateTime.fromMillisecondsSinceEpoch(json['birthday'] * 1000)
-        : null,
-    createdAt: DateTime.fromMillisecondsSinceEpoch((json['createdAt'] ?? 0) * 1000),
-    // Arrays: already decoded by Service before fromJson is called
-    education: (json['education'] as List? ?? [])
-        .map((e) => EducationModel.fromJson(Map<String, dynamic>.from(e)))
-        .toList(),
-  );
-
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'birthday': birthday != null ? birthday!.millisecondsSinceEpoch ~/ 1000 : null,
-    'createdAt': createdAt.millisecondsSinceEpoch ~/ 1000,
-    'education': education.map((e) => e.toJson()).toList(),
-  };
+class ProfileImageModel {
+  final String url;
+  final DateTime createdAt;
 }
 ```
 
-Rules:
-- `final` fields — models are immutable. `const` constructor.
-- Only `fromJson` factory and `toJson` method — no other logic.
-- Timestamps: backend = Unix seconds. Convert with `DateTime.fromMillisecondsSinceEpoch(ts * 1000)`.
-- Array fields receive already-decoded `List` — Service handles JSON string decoding before calling `fromJson`.
-- Nested model classes may live in the same file (EducationModel, WorkExperienceModel, etc).
-- No state access, no API calls, no dependencies.
+#### PostModel
+```dart
+class PostModel {
+  final String id;
+  final String userId;
+  final String authorName;
+  final String authorAvatarUrl;
+  final String content;
+  final List<String> imageUrls;
+  final Map<String, int> reactionCounts;  // e.g. {"Like": 3, "Love": 1}
+  final String? userReaction;             // null = no reaction from viewer
+  final DateTime createdAt;
+  final DateTime updatedAt;
+}
+```
+
+#### CommentModel
+```dart
+class CommentModel {
+  final String id;
+  final String postId;
+  final String? parentId;    // null = top-level comment; non-null = reply
+  final String userId;
+  final String authorName;
+  final String authorAvatarUrl;
+  final String content;
+  final List<String> imageUrls;
+  final Map<String, int> reactionCounts;
+  final String? userReaction;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+}
+```
+
+Model rules:
+- `final` fields — immutable. `const` constructor.
+- Only `fromJson` factory and `toJson` — no other logic.
+- Timestamps: Unix seconds from backend → `DateTime.fromMillisecondsSinceEpoch(ts * 1000)`.
+- `imageUrls`: `(json['imageUrls'] as List? ?? []).cast<String>()`
+- `reactionCounts`: after Service normalizes `[]` → `{}`, use `Map<String,dynamic>.from(json['reactionCounts'] ?? {}).map((k, v) => MapEntry(k, v as int))`
+- `profileImages`: after Service calls `_decodeList`, use standard `List.map(ProfileImageModel.fromJson)`
 
 ---
 
-#### ApiClient — centralized HTTP config only
+### Frontend Layer Responsibilities
+
+#### ApiClient — HTTP config only
 
 ```dart
 class ApiClient {
@@ -312,11 +682,8 @@ class ApiClient {
       receiveTimeout: const Duration(seconds: 10),
       contentType: 'application/json',
     ));
-    // Add interceptors here: logging, auth header injection, etc.
   }
-
   late final Dio _dio;
-
   Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async {
     final res = await _dio.post(path, data: body);
     return res.data as Map<String, dynamic>;
@@ -324,206 +691,180 @@ class ApiClient {
 }
 ```
 
-Rules:
-- Repositories NEVER import or instantiate Dio.
-- ALL base URL, timeout, header, interceptor config ONLY here.
-- Adding auth tokens later? One interceptor here — never in repositories.
+Rules: Repositories NEVER import Dio. All config here only.
 
 ---
 
-#### Repositories — pure API calls only
-
-```dart
-class UserRepository {
-  static final instance = UserRepository._();
-  UserRepository._();
-
-  Future<Map<String, dynamic>> login({required String email, required String password}) =>
-    ApiClient.instance.post('/api.php', {
-      'method': 'user.login',
-      'email': email,
-      'password': password,
-    });
-
-  Future<Map<String, dynamic>> updateById({
-    required String id,
-    String? name,
-    String? bio,
-    List<Map<String, dynamic>>? education,
-  }) =>
-    ApiClient.instance.post('/api.php', {
-      'method': 'user.updateById',
-      'id': id,
-      if (name != null) 'name': name,
-      if (bio != null) 'bio': bio,
-      if (education != null) 'education': jsonEncode(education),
-    });
-}
-```
+#### Repositories — raw API calls only
 
 Rules:
-- ONLY build request body and call `ApiClient.instance.post('/api.php', {...})`.
-- Named parameters for all method signatures.
-- `if (x != null) 'key': x` spread syntax for optional fields.
-- JSON-encode array fields before including them in the request map.
-- Return raw `Future<Map<String, dynamic>>` — no parsing, no status checking.
-- No error handling, no validation, no state access.
+- ONLY build request body + call `ApiClient.instance.post('/api.php', {...})`.
+- Named parameters. `if (x != null) 'key': x` spread for optional fields.
+- JSON-encode array fields: `'imageUrls': jsonEncode(urls)`.
+- Return raw `Future<Map<String, dynamic>>`. No parsing, no status checks.
 
 ---
 
-#### Services — logic, orchestration, state updates
-
-```dart
-class UserService {
-  static final instance = UserService._();
-  UserService._();
-
-  final _repo = UserRepository.instance;
-  final _state = UserState.instance;
-
-  Future<bool> login({required String email, required String password}) async {
-    _state.setLoading(true);
-    final res = await _repo.login(email: email, password: password);
-    final user = _parseUser(res);
-    if (user != null) _state.setUser(user);
-    _state.setLoading(false);
-    return user != null;
-  }
-
-  void logout() => _state.clearUser();
-
-  // ---- Private helpers ----
-
-  /// Parse a UserModel from a JSend success response.
-  /// Expects: res['status'] == 'success' and res['data']['user'] != null
-  UserModel? _parseUser(Map<String, dynamic> res) {
-    if (res['status'] != 'success' || res['data']?['user'] == null) return null;
-    final map = Map<String, dynamic>.from(res['data']['user']);
-    // Decode JSON-string arrays returned by the backend (SQLite stores them as text)
-    map['education'] = _decodeList(map['education']);
-    map['workExperience'] = _decodeList(map['workExperience']);
-    map['profileImages'] = _decodeList(map['profileImages']);
-    return UserModel.fromJson(map);
-  }
-
-  /// Handles both raw List and JSON-encoded String (from SQLite TEXT column).
-  List<Map<String, dynamic>> _decodeList(dynamic value) {
-    if (value == null) return [];
-    if (value is String && value.isNotEmpty) {
-      final decoded = jsonDecode(value);
-      if (decoded is List) return decoded.map((e) => Map<String, dynamic>.from(e)).toList();
-    } else if (value is List) {
-      return value.map((e) => Map<String, dynamic>.from(e)).toList();
-    }
-    return [];
-  }
-}
-```
+#### Services — logic, state updates, response parsing
 
 Rules:
-- ALL business logic and validation here.
 - Check `res['status'] == 'success'` before reading data.
-- Read success payload from `res['data']['key']` — never from top-level keys.
-- Decode JSON-string array columns with `_decodeList` before passing map to `fromJson`.
-- Services are the ONLY layer that calls state mutation methods.
-- Wrap async calls with `_state.setLoading(true/false)`.
+- Read from `res['data']['key']` — never top-level keys.
+- Only layer that calls state mutation methods.
+- Wrap with `_state.setLoading(true/false)`.
 
----
-
-#### States — pure state values only
-
+**Parsing helpers (define in each Service that needs them):**
 ```dart
-class UserState extends ChangeNotifier {
-  static final instance = UserState._();
-  UserState._();
-
-  String _id = '';
-  String get id => _id;
-
-  String _name = '';
-  String get name => _name;
-
-  bool _loading = false;
-  bool get loading => _loading;
-
-  void setUser(UserModel? u) {
-    _user = u;
-    if (u == null) { clearUser(); return; }
-    _id = u.id;
-    _name = u.name;
-    // ... hydrate all individual fields
-    notifyListeners();
+// For List<Map> columns (profileImages)
+List<Map<String, dynamic>> _decodeList(dynamic value) {
+  if (value == null) return [];
+  if (value is List) return value.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  if (value is String && value.isNotEmpty) {
+    final d = jsonDecode(value);
+    if (d is List) return d.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
+  return [];
+}
 
-  void clearUser() {
-    _id = '';
-    _name = '';
-    // ... reset all fields to defaults
-    notifyListeners();
-  }
+// Applied before Model.fromJson:
+PostModel _parsePost(Map<String, dynamic> raw) {
+  final map = Map<String, dynamic>.from(raw);
+  // reactionCounts: normalize PHP [] → {}
+  final rc = map['reactionCounts'];
+  if (rc == null || rc is List) map['reactionCounts'] = <String, dynamic>{};
+  // imageUrls arrives as List<dynamic> — fromJson handles cast<String>()
+  // No decodeList needed for imageUrls (it's List<String>, not List<Map>)
+  return PostModel.fromJson(map);
+}
 
-  void setLoading(bool val) { _loading = val; notifyListeners(); }
+UserModel _parseUser(Map<String, dynamic> raw) {
+  final map = Map<String, dynamic>.from(raw);
+  map['profileImages'] = _decodeList(map['profileImages']);
+  return UserModel.fromJson(map);
+}
+```
 
-  void updateField<T>(T value, void Function(UserState s, T v) updater) {
-    updater(this, value);
-    notifyListeners();
+**Optimistic UI for reactions:**
+```dart
+Future<void> toggleReaction({required String targetType, required String targetId, required String type}) async {
+  final prev = _state.getReactionSnapshot(targetId);
+  _state.applyOptimisticReaction(targetId: targetId, type: type);
+  final res = await _repo.toggleReaction(
+    userId: _userState.id, targetType: targetType, targetId: targetId, type: type);
+  if (res['status'] == 'success') {
+    final rc = res['data']['reactionCounts'];
+    final ur = res['data']['userReaction'] as String?;
+    _state.applyReactionResult(targetId: targetId, reactionCounts: Map<String,int>.from(rc is List ? {} : rc), userReaction: ur);
+  } else {
+    _state.rollbackReaction(targetId: targetId, snapshot: prev);
   }
 }
 ```
 
+---
+
+#### States — values only
+
 Rules:
-- Holds values only — no logic, no API calls, no model parsing.
-- Every field: private with `_` prefix + public getter.
-- `setUser()` hydrates ALL individual fields from the model (enables fine-grained `Selector`).
-- `clearUser()` resets all fields to safe defaults and calls `notifyListeners()`.
-- `notifyListeners()` called in EVERY setter without exception.
+- No logic, no API calls, no model parsing.
+- Every field: private `_` prefix + public getter.
+- Setter methods hydrate ALL individual fields from model.
+- `notifyListeners()` in EVERY setter without exception.
+
+**Selector for list state:** when items in a list update (e.g. reaction count on one post), update the specific item and replace the list reference so Selector detects the change:
+```dart
+void updatePost(PostModel updated) {
+  _posts = _posts.map((p) => p.id == updated.id ? updated : p).toList();
+  notifyListeners();
+}
+```
 
 ---
 
-## API Contract — Backend ↔ Frontend Alignment
+### UI/UX Patterns
 
-This section is the source of truth. Backend response shapes and frontend parsing MUST match exactly.
+#### Post image grid (`PostImageGrid` widget)
 
-### Field naming
-- All field names: **camelCase** in both PHP and Dart (e.g. `followersCount`, `websiteUrl`, `workExperience`).
+| Count | Layout |
+|---|---|
+| 1 | Full-width, fixed height (260px) |
+| 2 | Two equal columns side by side |
+| 3 | Top: full-width; bottom row: two equal columns |
+| 4+ | 2×2 grid; bottom-right cell shows `+N` overlay for remaining count |
 
-### Timestamps
-- Backend sends: **Unix seconds** integer (e.g. `1709123456`).
-- Frontend reads: `DateTime.fromMillisecondsSinceEpoch(ts * 1000)`.
-- Frontend sends back: `dateTime.millisecondsSinceEpoch ~/ 1000`.
+Tap any image → push fullscreen `PageView` viewer with `InteractiveViewer` (pinch to zoom).
 
-### Array columns (education, workExperience, profileImages)
-- Backend stores as JSON text in SQLite.
-- Backend returns raw JSON string from DB row (e.g. `"education": "[{...}]"`).
-- Frontend Service decodes with `_decodeList()` (handles both String and List).
-- Frontend Repository sends encoded: `jsonEncode(list)` in the request body.
-- Backend Service decodes received JSON: `json_decode($input['education'], true) ?? []`.
+#### Reaction bars (`reaction_bar.dart`)
 
-### Password
-- Never returned in any API response. Service always `unset($row['password'])` before building `data`.
+- **`CompactReactionBar`** — used on post cards in feed AND on comments/replies:
+  - Shows top 2 emoji + total count + "React" pill button.
+  - Tap React → bottom sheet with 6 emoji circles.
+- **`FullReactionBar`** — used on `PostDetailScreen` for the post only:
+  - Shows all 6 reaction buttons inline with per-type counts.
 
-### JSend contract per endpoint
+#### Comments + Replies (on PostDetailScreen)
 
-| Method | Success `data` shape | Fail `data` shape |
-|---|---|---|
-| `user.register` | `{"user": {...}}` | `{"email": "reason"}` |
-| `user.login` | `{"user": {...}}` | `{"email": "Invalid credentials"}` |
-| `user.findById` | `{"user": {...}}` | `{"id": "User not found"}` |
-| `user.findByEmail` | `{"user": {...}}` | `{"email": "User not found"}` |
-| `user.updateById` | `{"user": {...}}` | `{"id": "reason"}` |
-| `user.deleteById` | `{"message": "User deleted"}` | `{"id": "User not found"}` |
-| `user.listAll` | `{"users": [...]}` | — |
+- Comments section lives at the bottom of `PostDetailScreen`, below the post body.
+- `comment.list` returns a flat list. Frontend groups:
+  ```dart
+  final topLevel = comments.where((c) => c.parentId == null).toList();
+  List<CommentModel> repliesFor(String commentId) =>
+    comments.where((c) => c.parentId == commentId).toList();
+  ```
+- Replies are visually indented (16px left padding + vertical line or avatar offset).
+- Each comment row:
+  - Author avatar + name + timestamp
+  - Content text
+  - Image grid (if `imageUrls` non-empty)
+  - `CompactReactionBar`
+  - "Reply" text button → shows inline reply input field
+- Reply input: appears below the target comment (not at the bottom of the screen). On submit: calls `comment.create` with `parentId` set. On success: inserts the new reply into the local flat list and regroups.
+- Both comments and replies can be reacted to (same `reaction.toggle` with `targetType: 'comment'`).
 
-Frontend parses user from: `res['data']['user']`
-Frontend parses list from: `res['data']['users']`
-Frontend checks delete success: `res['status'] == 'success'`
+#### Profile screen sections
+
+`ProfileScreen` has two tabs:
+1. **Posts** — `ListView` with infinite scroll. Uses `post.list` with `authorId = profileUserId`. Same `PostCard` as home feed.
+2. **Photos** — `GridView` (3 columns) of all `profileImages` entries. Tap → fullscreen viewer. Newest first.
+
+Own profile (when `profileUserId == UserState.instance.id`): shows Edit Profile button in AppBar.
+
+---
+
+### Pagination — Infinite Scroll
+
+```dart
+_scrollController.addListener(() {
+  final pos = _scrollController.position;
+  if (pos.pixels >= pos.maxScrollExtent * 0.8) {
+    service.loadNextPage();  // no-op if loading or !hasMore
+  }
+});
+```
+
+**State accumulation:**
+```dart
+void appendPosts(List<PostModel> page, bool hasMore) {
+  _posts = [..._posts, ...page];
+  _hasMore = hasMore;
+  notifyListeners();
+}
+```
+
+**Pull-to-refresh:**
+```dart
+Future<void> refresh() async {
+  _state.clearPosts();       // resets list + offset to 0
+  await _loadPage(offset: 0);
+}
+```
 
 ---
 
 ## State Management Rules
 
 - **ONLY** `provider` with `ChangeNotifier`. No Riverpod, BLoC, GetX.
-- Registered in `main.dart`: `ChangeNotifierProvider(create: (_) => UserState.instance, ...)`.
+- Registered in `main.dart` with `MultiProvider`.
 
 #### ABSOLUTE RULE: Never use `watch` or `Consumer`
 
@@ -531,8 +872,22 @@ Frontend checks delete success: `res['status'] == 'success'`
 - **ALWAYS** `Selector<StateClass, FieldType>` scoped to the minimum field:
   ```dart
   Selector<UserState, String>(
-    selector: (_, state) => state.name,
+    selector: (_, s) => s.name,
     builder: (context, name, _) => Text(name),
+  )
+  ```
+- Multiple primitives → record tuple:
+  ```dart
+  Selector<PostState, (int, bool)>(
+    selector: (_, s) => (s.postCount, s.hasMore),
+    builder: (context, val, _) => Text('${val.$1} posts'),
+  )
+  ```
+- For list rebuilds, select the list itself (Selector compares by `==`; replacing the list reference triggers rebuild):
+  ```dart
+  Selector<PostState, List<PostModel>>(
+    selector: (_, s) => s.posts,
+    builder: (context, posts, _) => ListView(...),
   )
   ```
 
@@ -542,39 +897,27 @@ Frontend checks delete success: `res['status'] == 'success'`
 
 - GoRouter defined in `router/router.dart` as top-level `final router`.
 - `globalNavigatorKey` and `globalContext` getter defined in `router.dart`.
-- `NoTransitionPage` for auth screens (login, register). Regular `builder` for all others.
-
-#### Every screen MUST have these three static members:
-
-```dart
-class HomeScreen extends StatelessWidget {
-  static const String routeName = '/';
-  static Function(BuildContext ctx) go = (ctx) => ctx.go(routeName);
-  static Function(BuildContext ctx) push = (ctx) => ctx.push(routeName);
-}
-```
-
-- Navigate ONLY via the screen's static `go` or `push` — never with raw strings.
-- `go` replaces the stack. `push` layers on top.
-- Add the new route to `router/router.dart` when creating any new screen.
+- `NoTransitionPage` for auth screens. Regular `builder` for all others.
+- Add every new screen to `router.dart` when created.
 
 ---
 
 ## Widget Rules
 
-- Stateful only for local UI state (form controllers, loading flags, toggles).
-- Stateless for all other widgets.
-- Global state only via Service → State → Selector. No direct `setState` for shared state.
+- Stateful only for local UI state (form controllers, scroll controllers, loading flags, toggles, reply input visibility).
+- Stateless for everything else.
+- Global state only via Service → State → Selector.
+- Shared widgets live in `frontend/lib/widgets/`.
 
 ---
 
 ## General Rules
 
-- No external UI libraries unless approved. Use Material Design.
+- No external UI libraries unless approved. Material Design.
 - No code generation (Freezed, build_runner, json_serializable) unless approved.
-- Minimal dependencies — only add clearly necessary packages.
+- Minimal dependencies — only clearly necessary packages.
 - All Dart code must be null-safe.
-- Comments only where logic is genuinely non-obvious.
+- Comments only where logic is non-obvious.
 - No error handling for impossible scenarios — validate only at system boundaries.
 
 ---
@@ -583,16 +926,27 @@ class HomeScreen extends StatelessWidget {
 
 ### New backend domain
 - [ ] Controller, Service, Repository, Entity created
-- [ ] Controller methods are one-liners — zero logic
-- [ ] All validation and business logic in Service
-- [ ] Repository contains only prepared statements
-- [ ] Responses follow JSend: `{"status": ..., "data": {...}}`
-- [ ] `password` field removed with `unset` before building response data
+- [ ] Repository extends `Core\Repository`; uses `$this->fetch()` / `$this->execute()` / `$this->fetchAll()`
+- [ ] Controller methods are one-liners — `$this->json($this->service->method($input))`
+- [ ] All validation and business logic in Service; Service uses `Jsend::` for responses
+- [ ] `updatedAt = time()` set on create and on every update
+- [ ] All JSON array columns decoded (`json_decode($row['col'], true) ?? []`) before building response
+- [ ] `reactionCounts` attached to every post/comment via ReactionRepository (batch query for lists)
+- [ ] `password` removed with `unset` before any user response
+- [ ] `PRAGMA foreign_keys = ON` enforced via `Database::get()` singleton
 
 ### New frontend screen/domain
-- [ ] Screen has `routeName`, `go`, `push` static members
+- [ ] Screen has `static routeName`, `static go`, `static push`
 - [ ] Route added to `router/router.dart`
 - [ ] No `watch` or `Consumer` — only `Selector`
 - [ ] Repository uses `ApiClient.instance.post()` — no Dio import
-- [ ] Service reads `res['data']['key']` (not top-level) after checking `res['status'] == 'success'`
-- [ ] State class holds values only — `setUser()` hydrates all individual fields
+- [ ] Service reads `res['data']['key']` after `res['status'] == 'success'` check
+- [ ] Service: `_decodeList` applied to `profileImages`; `cast<String>()` applied to `imageUrls`
+- [ ] Service: `reactionCounts` normalized — `if (rc == null || rc is List) map['reactionCounts'] = {}`
+- [ ] Repository JSON-encodes array fields: `jsonEncode(list)`
+- [ ] State hydrates ALL individual fields in setters; `notifyListeners()` in every setter
+- [ ] Infinite scroll: `ScrollController` triggers at 80%; pull-to-refresh clears state and resets offset
+- [ ] Optimistic UI on reaction toggle: snapshot → apply → confirm or rollback
+- [ ] `CachedNetworkImage` for all network images with `placeholder` and `errorWidget`
+- [ ] Image grid uses `PostImageGrid` widget (1/2/3/4+ layouts)
+- [ ] `CompactReactionBar` on cards and comments; `FullReactionBar` on post detail only

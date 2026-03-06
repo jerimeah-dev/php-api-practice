@@ -2,168 +2,98 @@
 
 namespace lib\User;
 
+use lib\Core\Jsend;
+
 class UserService
 {
-    public UserRepository $repo;
+    private UserRepository $repo;
 
     public function __construct()
     {
         $this->repo = new UserRepository();
     }
 
-    // ---------------- REGISTER ----------------
     public function register(array $input): array
     {
-        $email = trim($input['email'] ?? '');
+        $email    = trim($input['email'] ?? '');
         $password = $input['password'] ?? '';
-        $name = $input['name'] ?? null;
+        $name     = trim($input['name'] ?? '');
 
         if (!$email || !$password)
-            return ['status' => 'fail', 'data' => ['email' => 'Email and password required']];
-
+            return Jsend::fail(['email' => 'Email and password required']);
         if (!filter_var($email, FILTER_VALIDATE_EMAIL))
-            return ['status' => 'fail', 'data' => ['email' => 'Invalid email format']];
-
+            return Jsend::fail(['email' => 'Invalid email format']);
         if ($this->repo->existsByEmail($email))
-            return ['status' => 'fail', 'data' => ['email' => 'Email already registered']];
+            return Jsend::fail(['email' => 'Email already registered']);
 
-        do {
-            $id = bin2hex(random_bytes(8));
-        } while ($this->repo->existsById($id));
+        do { $id = bin2hex(random_bytes(8)); } while ($this->repo->existsById($id));
 
-        $user = new UserEntity();
-        $user->id = $id;
-        $user->email = $email;
-        $user->password = password_hash($password, PASSWORD_DEFAULT);
-        $user->name = $name;
-        $user->createdAt = time();
+        $entity                = new UserEntity();
+        $entity->id            = $id;
+        $entity->email         = $email;
+        $entity->password      = password_hash($password, PASSWORD_DEFAULT);
+        $entity->name          = $name;
+        $entity->avatarUrl     = '';
+        $entity->profileImages = [];
+        $entity->createdAt     = time();
 
-        $this->repo->create($user);
-        $row = $this->repo->findById($id);
-        unset($row['password']);
-
-        return ['status' => 'success', 'data' => ['user' => $row]];
+        $this->repo->create($entity);
+        return Jsend::success(['user' => $this->prepareUser($this->repo->findById($id))]);
     }
 
-    // ---------------- LOGIN ----------------
     public function login(array $input): array
     {
-        $email = $input['email'] ?? '';
+        $email    = trim($input['email'] ?? '');
         $password = $input['password'] ?? '';
-
-        $row = $this->repo->findByEmail($email);
+        $row      = $this->repo->findByEmail($email);
 
         if (!$row || !password_verify($password, $row['password']))
-            return ['status' => 'fail', 'data' => ['email' => 'Invalid credentials']];
+            return Jsend::fail(['email' => 'Invalid credentials']);
 
-        unset($row['password']);
-        return ['status' => 'success', 'data' => ['user' => $row]];
+        return Jsend::success(['user' => $this->prepareUser($row)]);
     }
 
-    // ---------------- FIND BY ID ----------------
     public function findById(array $input): array
     {
-        $id = $input['id'] ?? '';
-        $row = $this->repo->findById($id);
-
-        if (!$row)
-            return ['status' => 'fail', 'data' => ['id' => 'User not found']];
-
-        unset($row['password']);
-        return ['status' => 'success', 'data' => ['user' => $row]];
+        $row = $this->repo->findById($input['id'] ?? '');
+        if (!$row) return Jsend::fail(['id' => 'User not found']);
+        return Jsend::success(['user' => $this->prepareUser($row)]);
     }
 
-    // ---------------- FIND BY EMAIL ----------------
-    public function findByEmail(array $input): array
-    {
-        $email = $input['email'] ?? '';
-        $row = $this->repo->findByEmail($email);
-
-        if (!$row)
-            return ['status' => 'fail', 'data' => ['email' => 'User not found']];
-
-        unset($row['password']);
-        return ['status' => 'success', 'data' => ['user' => $row]];
-    }
-
-    // ---------------- UPDATE BY ID ----------------
     public function updateById(array $input): array
     {
-        $id = $input['id'] ?? '';
+        $id       = $input['id'] ?? '';
         $existing = $this->repo->findById($id);
+        if (!$existing) return Jsend::fail(['id' => 'User not found']);
 
-        if (!$existing)
-            return ['status' => 'fail', 'data' => ['id' => 'User not found']];
-
-        $entity = new UserEntity();
-        $entity->id = $id;
-        $entity->email = $input['email'] ?? $existing['email'];
-        $entity->name = $input['name'] ?? $existing['name'];
-        $entity->password = isset($input['password'])
-            ? password_hash($input['password'], PASSWORD_DEFAULT)
-            : $existing['password'];
-        $entity->bio = $input['bio'] ?? $existing['bio'];
-        $entity->websiteUrl = $input['websiteUrl'] ?? $existing['websiteUrl'];
-        $entity->followersCount = $input['followersCount'] ?? $existing['followersCount'];
-        $entity->followingCount = $input['followingCount'] ?? $existing['followingCount'];
-        $entity->postsCount = $input['postsCount'] ?? $existing['postsCount'];
-
-        // Birthday validation
-        $entity->birthday = $existing['birthday'] ?? null;
-        if (isset($input['birthday'])) {
-            $birthday = $input['birthday'];
-            if (!is_int($birthday) || $birthday <= 0)
-                return ['status' => 'fail', 'data' => ['birthday' => 'Invalid birthday timestamp']];
-
-            $age = (int)((time() - $birthday) / (365.25 * 24 * 60 * 60));
-            if ($age < 0 || $age > 120)
-                return ['status' => 'fail', 'data' => ['birthday' => 'Birthday out of range']];
-
-            $entity->birthday = $birthday;
-        }
-
-        // Arrays: entity holds decoded PHP arrays; repo json_encodes on write
-        $entity->education = isset($input['education'])
-            ? (is_string($input['education']) ? json_decode($input['education'], true) ?? [] : $input['education'])
-            : json_decode($existing['education'] ?? '[]', true) ?? [];
-
-        $entity->workExperience = isset($input['workExperience'])
-            ? (is_string($input['workExperience']) ? json_decode($input['workExperience'], true) ?? [] : $input['workExperience'])
-            : json_decode($existing['workExperience'] ?? '[]', true) ?? [];
-
-        $entity->profileImages = isset($input['profileImages'])
+        $profileImages = isset($input['profileImages'])
             ? (is_string($input['profileImages']) ? json_decode($input['profileImages'], true) ?? [] : $input['profileImages'])
             : json_decode($existing['profileImages'] ?? '[]', true) ?? [];
 
-        // Sync currentAvatarUrl from the image marked isCurrent
-        $currentImgs = array_values(array_filter($entity->profileImages, fn($img) => ($img['isCurrent'] ?? false) === true));
-        $entity->currentAvatarUrl = !empty($currentImgs) ? ($currentImgs[0]['url'] ?? '') : ($existing['currentAvatarUrl'] ?? '');
+        $entity                = new UserEntity();
+        $entity->id            = $id;
+        $entity->email         = $existing['email'];
+        $entity->password      = $existing['password'];
+        $entity->name          = trim($input['name'] ?? $existing['name'] ?? '');
+        $entity->profileImages = $profileImages;
+        $entity->avatarUrl     = !empty($profileImages) ? ($profileImages[0]['url'] ?? '') : '';
 
         $this->repo->updateById($entity);
-        $row = $this->repo->findById($id);
-        unset($row['password']);
-
-        return ['status' => 'success', 'data' => ['user' => $row]];
+        return Jsend::success(['user' => $this->prepareUser($this->repo->findById($id))]);
     }
 
-    // ---------------- DELETE BY ID ----------------
     public function deleteById(array $input): array
     {
         $id = $input['id'] ?? '';
-        if (!$this->repo->existsById($id))
-            return ['status' => 'fail', 'data' => ['id' => 'User not found']];
-
+        if (!$this->repo->existsById($id)) return Jsend::fail(['id' => 'User not found']);
         $this->repo->deleteById($id);
-        return ['status' => 'success', 'data' => ['message' => 'User deleted']];
+        return Jsend::success(['message' => 'User deleted']);
     }
 
-    // ---------------- LIST ALL ----------------
-    public function listAll(): array
+    private function prepareUser(array $row): array
     {
-        $rows = $this->repo->getAll();
-        foreach ($rows as &$row) {
-            unset($row['password']);
-        }
-        return ['status' => 'success', 'data' => ['users' => $rows]];
+        unset($row['password']);
+        $row['profileImages'] = json_decode($row['profileImages'] ?? '[]', true) ?? [];
+        return $row;
     }
 }

@@ -1,20 +1,19 @@
 <?php
 
-namespace lib\Post;
+namespace lib\Comment;
 
 use lib\Core\Controller;
 
-class PostController extends Controller
+class CommentController extends Controller
 {
-    private PostService $service;
+    private CommentService $service;
 
     public function __construct()
     {
-        $this->service = new PostService();
+        $this->service = new CommentService();
     }
 
     public function list(array $input)       { $this->json($this->service->list($input)); }
-    public function getById(array $input)    { $this->json($this->service->getById($input)); }
     public function create(array $input)     { $this->json($this->service->create($input)); }
     public function updateById(array $input) { $this->json($this->service->updateById($input)); }
     public function deleteById(array $input) { $this->json($this->service->deleteById($input)); }
