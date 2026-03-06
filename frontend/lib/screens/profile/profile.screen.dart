@@ -143,7 +143,10 @@ class _ProfileScreenState extends State<ProfileScreen>
     return Scaffold(
       backgroundColor: const Color(0xFFF0F2F5),
       appBar: AppBar(
-        title: Text(user.name.isNotEmpty ? user.name : 'Profile',
+        title: Text(
+            user.name.isNotEmpty
+                ? user.name
+                : (user.email.isNotEmpty ? user.email.split('@')[0] : 'Profile'),
             style: const TextStyle(fontWeight: FontWeight.w700)),
       ),
       body: Column(
@@ -231,21 +234,26 @@ class _CoverAndAvatar extends StatelessWidget {
       clipBehavior: Clip.none,
       alignment: Alignment.bottomCenter,
       children: [
-        // Cover photo (blurred avatar as cover background)
+        // Cover photo: coverImages[0] → avatarUrl → placeholder color
         Container(
           height: 180,
           width: double.infinity,
           color: const Color(0xFF8B9DC3),
-          child: user.avatarUrl.isNotEmpty
-              ? CachedNetworkImage(
-                  imageUrl: user.avatarUrl,
-                  fit: BoxFit.cover,
-                  placeholder: (_, _) =>
-                      Container(color: const Color(0xFF8B9DC3)),
-                  errorWidget: (_, _, _) =>
-                      Container(color: const Color(0xFF8B9DC3)),
-                )
-              : null,
+          child: () {
+            final coverUrl = user.coverImages.isNotEmpty
+                ? user.coverImages[0].url
+                : user.avatarUrl;
+            return coverUrl.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: coverUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (_, _) =>
+                        Container(color: const Color(0xFF8B9DC3)),
+                    errorWidget: (_, _, _) =>
+                        Container(color: const Color(0xFF8B9DC3)),
+                  )
+                : null;
+          }(),
         ),
         // Avatar overlapping the cover bottom — tappable
         Positioned(
@@ -302,7 +310,11 @@ class _ProfileInfo extends StatelessWidget {
       child: Column(
         children: [
           Text(
-            user.name.isNotEmpty ? user.name : 'No name',
+            user.name.isNotEmpty
+                ? user.name
+                : (user.email.isNotEmpty
+                    ? user.email[0].toUpperCase()
+                    : '?'),
             style: const TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.w800,
@@ -698,20 +710,24 @@ class _EditProfileSheet extends StatefulWidget {
 class _EditProfileSheetState extends State<_EditProfileSheet> {
   late final TextEditingController _nameCtrl;
   late List<ProfileImageModel> _images;
+  late List<ProfileImageModel> _coverImages;
   final _urlCtrl = TextEditingController();
+  final _coverUrlCtrl = TextEditingController();
   bool _loading = false;
 
   @override
   void initState() {
     super.initState();
-    _nameCtrl = TextEditingController(text: widget.user.name);
-    _images = List.from(widget.user.profileImages);
+    _nameCtrl    = TextEditingController(text: widget.user.name);
+    _images      = List.from(widget.user.profileImages);
+    _coverImages = List.from(widget.user.coverImages);
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _urlCtrl.dispose();
+    _coverUrlCtrl.dispose();
     super.dispose();
   }
 
@@ -724,6 +740,15 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     });
   }
 
+  void _addCoverImage() {
+    final url = _coverUrlCtrl.text.trim();
+    if (url.isEmpty) return;
+    setState(() {
+      _coverImages.add(ProfileImageModel(url: url, createdAt: DateTime.now()));
+      _coverUrlCtrl.clear();
+    });
+  }
+
   /// Promotes image at [i] to position 0 (making it the new profile picture).
   void _setAsPrimary(int i) {
     if (i == 0) return;
@@ -733,12 +758,21 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     });
   }
 
+  void _setCoverAsPrimary(int i) {
+    if (i == 0) return;
+    setState(() {
+      final img = _coverImages.removeAt(i);
+      _coverImages.insert(0, img);
+    });
+  }
+
   Future<void> _save() async {
     setState(() => _loading = true);
     Navigator.pop(context);
     await UserService.instance.updateProfile(
       name: _nameCtrl.text.trim(),
       profileImages: _images,
+      coverImages: _coverImages,
     );
     widget.onSaved();
   }
@@ -827,89 +861,160 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
           ),
           const SizedBox(height: 8),
 
-          // Images list
+          // Profile images list
           ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 220),
+            constraints: const BoxConstraints(maxHeight: 200),
             child: ListView.builder(
               shrinkWrap: true,
               itemCount: _images.length,
-              itemBuilder: (context, i) {
-                final img = _images[i];
-                final isProfilePic = i == 0;
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: CachedNetworkImage(
-                        imageUrl: img.url,
-                        fit: BoxFit.cover,
-                        placeholder: (_, _) =>
-                            Container(color: Colors.grey[200]),
-                        errorWidget: (_, _, _) => const Icon(
-                            Icons.broken_image,
-                            color: Colors.grey),
-                      ),
-                    ),
-                  ),
-                  title: Row(
-                    children: [
-                      if (isProfilePic)
-                        Container(
-                          margin: const EdgeInsets.only(right: 6),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: _fbBlue,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text('Profile Pic',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700)),
-                        ),
-                      Expanded(
-                        child: Text(img.url,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12)),
-                      ),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Star button: filled = current profile pic, outline = tap to set
-                      IconButton(
-                        tooltip: isProfilePic
-                            ? 'Current profile picture'
-                            : 'Set as profile picture',
-                        icon: Icon(
-                          isProfilePic ? Icons.star : Icons.star_outline,
-                          color: isProfilePic ? Colors.amber : Colors.grey,
-                          size: 20,
-                        ),
-                        onPressed: isProfilePic ? null : () => _setAsPrimary(i),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                      const SizedBox(width: 4),
-                      // Delete button
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline,
-                            color: Colors.red, size: 20),
-                        onPressed: () => setState(() => _images.removeAt(i)),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                    ],
-                  ),
-                );
-              },
+              itemBuilder: (context, i) => _ImageListTile(
+                img: _images[i],
+                isPrimary: i == 0,
+                primaryLabel: 'Profile Pic',
+                onSetPrimary: () => _setAsPrimary(i),
+                onDelete: () => setState(() => _images.removeAt(i)),
+              ),
             ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Cover Photos section
+          Row(
+            children: [
+              const Text('Cover Photos',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700, color: Color(0xFF050505))),
+              const SizedBox(width: 8),
+              Text('(tap ★ to set as cover)',
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _coverUrlCtrl,
+                  keyboardType: TextInputType.url,
+                  decoration: InputDecoration(
+                    hintText: 'https://...',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _addCoverImage,
+                style: FilledButton.styleFrom(backgroundColor: _fbBlue),
+                child: const Text('Add'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 200),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: _coverImages.length,
+              itemBuilder: (context, i) => _ImageListTile(
+                img: _coverImages[i],
+                isPrimary: i == 0,
+                primaryLabel: 'Cover',
+                onSetPrimary: () => _setCoverAsPrimary(i),
+                onDelete: () => setState(() => _coverImages.removeAt(i)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Reusable image list tile for edit sheet ──────────────────────────────────
+
+class _ImageListTile extends StatelessWidget {
+  const _ImageListTile({
+    required this.img,
+    required this.isPrimary,
+    required this.primaryLabel,
+    required this.onSetPrimary,
+    required this.onDelete,
+  });
+
+  final ProfileImageModel img;
+  final bool isPrimary;
+  final String primaryLabel;
+  final VoidCallback onSetPrimary;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: CachedNetworkImage(
+            imageUrl: img.url,
+            fit: BoxFit.cover,
+            placeholder: (_, _) => Container(color: Colors.grey[200]),
+            errorWidget: (_, _, _) =>
+                const Icon(Icons.broken_image, color: Colors.grey),
+          ),
+        ),
+      ),
+      title: Row(
+        children: [
+          if (isPrimary)
+            Container(
+              margin: const EdgeInsets.only(right: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: _fbBlue,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(primaryLabel,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700)),
+            ),
+          Expanded(
+            child: Text(img.url,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: isPrimary ? 'Current $primaryLabel' : 'Set as $primaryLabel',
+            icon: Icon(
+              isPrimary ? Icons.star : Icons.star_outline,
+              color: isPrimary ? Colors.amber : Colors.grey,
+              size: 20,
+            ),
+            onPressed: isPrimary ? null : onSetPrimary,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+            onPressed: onDelete,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
           ),
         ],
       ),

@@ -10,5 +10,6 @@ class UserEntity
     public string $name          = '';
     public string $avatarUrl     = '';
     public array  $profileImages = [];
+    public array  $coverImages   = [];
     public int    $createdAt;
 }

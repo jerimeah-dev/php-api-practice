@@ -34,14 +34,26 @@ class UserRepository {
     required String id,
     String? name,
     List<Map<String, dynamic>>? profileImages,
+    List<Map<String, dynamic>>? coverImages,
   }) =>
       ApiClient.instance.post('/api.php', {
         'method': 'user.updateById',
         'id': id,
         if (name != null) 'name': name,
         if (profileImages != null) 'profileImages': jsonEncode(profileImages),
+        if (coverImages != null) 'coverImages': jsonEncode(coverImages),
       });
 
   Future<Map<String, dynamic>> deleteById(String id) =>
       ApiClient.instance.post('/api.php', {'method': 'user.deleteById', 'id': id});
+
+  Future<Map<String, dynamic>> setProfilePic({
+    required String id,
+    required String imageUrl,
+  }) =>
+      ApiClient.instance.post('/api.php', {
+        'method': 'user.setProfilePic',
+        'id': id,
+        'imageUrl': imageUrl,
+      });
 }

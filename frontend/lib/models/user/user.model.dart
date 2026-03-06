@@ -4,6 +4,7 @@ class UserModel {
   final String name;
   final String avatarUrl;
   final List<ProfileImageModel> profileImages;
+  final List<ProfileImageModel> coverImages;
   final DateTime createdAt;
 
   const UserModel({
@@ -12,6 +13,7 @@ class UserModel {
     required this.name,
     required this.avatarUrl,
     required this.profileImages,
+    required this.coverImages,
     required this.createdAt,
   });
 
@@ -21,6 +23,9 @@ class UserModel {
         name: json['name'] ?? '',
         avatarUrl: json['avatarUrl'] ?? '',
         profileImages: (json['profileImages'] as List? ?? [])
+            .map((e) => ProfileImageModel.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList(),
+        coverImages: (json['coverImages'] as List? ?? [])
             .map((e) => ProfileImageModel.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
         createdAt: DateTime.fromMillisecondsSinceEpoch(
@@ -33,6 +38,7 @@ class UserModel {
         'name': name,
         'avatarUrl': avatarUrl,
         'profileImages': profileImages.map((p) => p.toJson()).toList(),
+        'coverImages': coverImages.map((p) => p.toJson()).toList(),
         'createdAt': createdAt.millisecondsSinceEpoch ~/ 1000,
       };
 }

@@ -35,6 +35,7 @@ class UserService
         $entity->name          = $name;
         $entity->avatarUrl     = '';
         $entity->profileImages = [];
+        $entity->coverImages   = [];
         $entity->createdAt     = time();
 
         $this->repo->create($entity);
@@ -70,13 +71,60 @@ class UserService
             ? (is_string($input['profileImages']) ? json_decode($input['profileImages'], true) ?? [] : $input['profileImages'])
             : json_decode($existing['profileImages'] ?? '[]', true) ?? [];
 
+        $coverImages = isset($input['coverImages'])
+            ? (is_string($input['coverImages']) ? json_decode($input['coverImages'], true) ?? [] : $input['coverImages'])
+            : json_decode($existing['coverImages'] ?? '[]', true) ?? [];
+
         $entity                = new UserEntity();
         $entity->id            = $id;
         $entity->email         = $existing['email'];
         $entity->password      = $existing['password'];
         $entity->name          = trim($input['name'] ?? $existing['name'] ?? '');
         $entity->profileImages = $profileImages;
+        $entity->coverImages   = $coverImages;
         $entity->avatarUrl     = !empty($profileImages) ? ($profileImages[0]['url'] ?? '') : '';
+
+        $this->repo->updateById($entity);
+        return Jsend::success(['user' => $this->prepareUser($this->repo->findById($id))]);
+    }
+
+    public function setProfilePic(array $input): array
+    {
+        $id       = $input['id'] ?? '';
+        $imageUrl = trim($input['imageUrl'] ?? '');
+
+        if (!$id || !$imageUrl)
+            return Jsend::fail(['imageUrl' => 'id and imageUrl are required']);
+
+        $existing = $this->repo->findById($id);
+        if (!$existing) return Jsend::fail(['id' => 'User not found']);
+
+        $profileImages = json_decode($existing['profileImages'] ?? '[]', true) ?? [];
+
+        // Find the target image and move it to index 0
+        $found = null;
+        $rest  = [];
+        foreach ($profileImages as $img) {
+            if ($found === null && ($img['url'] ?? '') === $imageUrl) {
+                $found = $img;
+            } else {
+                $rest[] = $img;
+            }
+        }
+
+        if ($found === null)
+            return Jsend::fail(['imageUrl' => 'Image not found in profile photos']);
+
+        $ordered = array_merge([$found], $rest);
+
+        $entity                = new UserEntity();
+        $entity->id            = $id;
+        $entity->email         = $existing['email'];
+        $entity->password      = $existing['password'];
+        $entity->name          = $existing['name'] ?? '';
+        $entity->profileImages = $ordered;
+        $entity->coverImages   = json_decode($existing['coverImages'] ?? '[]', true) ?? [];
+        $entity->avatarUrl     = $ordered[0]['url'];
 
         $this->repo->updateById($entity);
         return Jsend::success(['user' => $this->prepareUser($this->repo->findById($id))]);
@@ -94,6 +142,7 @@ class UserService
     {
         unset($row['password']);
         $row['profileImages'] = json_decode($row['profileImages'] ?? '[]', true) ?? [];
+        $row['coverImages']   = json_decode($row['coverImages'] ?? '[]', true) ?? [];
         return $row;
     }
 }

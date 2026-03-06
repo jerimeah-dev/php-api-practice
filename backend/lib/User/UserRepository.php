@@ -21,19 +21,22 @@ class UserRepository extends Repository
             name          TEXT    NOT NULL DEFAULT '',
             avatarUrl     TEXT    NOT NULL DEFAULT '',
             profileImages TEXT    NOT NULL DEFAULT '[]',
+            coverImages   TEXT    NOT NULL DEFAULT '[]',
             createdAt     INTEGER NOT NULL
         )");
         try { $this->db->exec("ALTER TABLE users ADD COLUMN avatarUrl TEXT NOT NULL DEFAULT ''"); } catch (\Throwable) {}
         try { $this->db->exec("ALTER TABLE users ADD COLUMN profileImages TEXT NOT NULL DEFAULT '[]'"); } catch (\Throwable) {}
+        try { $this->db->exec("ALTER TABLE users ADD COLUMN coverImages TEXT NOT NULL DEFAULT '[]'"); } catch (\Throwable) {}
     }
 
     public function create(UserEntity $user): bool
     {
         return (bool) $this->execute(
-            "INSERT INTO users (id, email, password, name, avatarUrl, profileImages, createdAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO users (id, email, password, name, avatarUrl, profileImages, coverImages, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [$user->id, $user->email, $user->password, $user->name,
-             $user->avatarUrl, json_encode($user->profileImages), $user->createdAt]
+             $user->avatarUrl, json_encode($user->profileImages),
+             json_encode($user->coverImages), $user->createdAt]
         );
     }
 
@@ -60,8 +63,10 @@ class UserRepository extends Repository
     public function updateById(UserEntity $user): bool
     {
         return (bool) $this->execute(
-            "UPDATE users SET name = ?, avatarUrl = ?, profileImages = ? WHERE id = ?",
-            [$user->name, $user->avatarUrl, json_encode($user->profileImages), $user->id]
+            "UPDATE users SET name = ?, avatarUrl = ?, profileImages = ?, coverImages = ? WHERE id = ?",
+            [$user->name, $user->avatarUrl,
+             json_encode($user->profileImages), json_encode($user->coverImages),
+             $user->id]
         );
     }
 

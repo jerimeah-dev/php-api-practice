@@ -17,5 +17,6 @@ class UserController extends Controller
     public function login(array $input)      { $this->json($this->service->login($input)); }
     public function findById(array $input)   { $this->json($this->service->findById($input)); }
     public function updateById(array $input) { $this->json($this->service->updateById($input)); }
-    public function deleteById(array $input) { $this->json($this->service->deleteById($input)); }
+    public function deleteById(array $input)   { $this->json($this->service->deleteById($input)); }
+    public function setProfilePic(array $input) { $this->json($this->service->setProfilePic($input)); }
 }

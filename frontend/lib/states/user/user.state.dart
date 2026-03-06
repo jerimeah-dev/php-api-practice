@@ -23,6 +23,9 @@ class UserState extends ChangeNotifier {
   List<ProfileImageModel> _profileImages = [];
   List<ProfileImageModel> get profileImages => _profileImages;
 
+  List<ProfileImageModel> _coverImages = [];
+  List<ProfileImageModel> get coverImages => _coverImages;
+
   DateTime _createdAt = DateTime.now();
   DateTime get createdAt => _createdAt;
 
@@ -44,6 +47,7 @@ class UserState extends ChangeNotifier {
       _name          = u.name;
       _avatarUrl     = u.avatarUrl;
       _profileImages = u.profileImages;
+      _coverImages   = u.coverImages;
       _createdAt     = u.createdAt;
     }
     notifyListeners();
@@ -61,6 +65,7 @@ class UserState extends ChangeNotifier {
     _name          = '';
     _avatarUrl     = '';
     _profileImages = [];
+    _coverImages   = [];
     _createdAt     = DateTime.now();
   }
 }

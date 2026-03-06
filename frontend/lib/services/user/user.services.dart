@@ -39,6 +39,7 @@ class UserService {
   Future<UserModel?> updateProfile({
     String? name,
     List<ProfileImageModel>? profileImages,
+    List<ProfileImageModel>? coverImages,
   }) async {
     if (_state.id.isEmpty) return null;
     _state.setLoading(true);
@@ -47,11 +48,20 @@ class UserService {
       id: _state.id,
       name: name,
       profileImages: profileImages?.map((p) => p.toJson()).toList(),
+      coverImages: coverImages?.map((p) => p.toJson()).toList(),
     );
 
     final user = _parseUser(res);
     if (user != null) _state.setUser(user);
     _state.setLoading(false);
+    return user;
+  }
+
+  Future<UserModel?> setProfilePic(String imageUrl) async {
+    if (_state.id.isEmpty) return null;
+    final res = await _repo.setProfilePic(id: _state.id, imageUrl: imageUrl);
+    final user = _parseUser(res);
+    if (user != null) _state.setUser(user);
     return user;
   }
 
@@ -64,6 +74,7 @@ class UserService {
     if (res['status'] != 'success' || res['data']?['user'] == null) return null;
     final map = Map<String, dynamic>.from(res['data']['user']);
     map['profileImages'] = _decodeList(map['profileImages']);
+    map['coverImages']   = _decodeList(map['coverImages']);
     return UserModel.fromJson(map);
   }
 
