@@ -71,7 +71,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: const Column(
                   children: [
                     Text(
-                      'facebook',
+                      'fakebook',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 40,
@@ -84,7 +84,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       'Connect with friends and the world\naround you.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                          color: Colors.white70, fontSize: 14, height: 1.5),
+                        color: Colors.white70,
+                        fontSize: 14,
+                        height: 1.5,
+                      ),
                     ),
                   ],
                 ),
@@ -132,24 +135,34 @@ class _LoginScreenState extends State<LoginScreen> {
                           backgroundColor: _fbBlue,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                         child: _loading
                             ? const SizedBox(
                                 height: 18,
                                 width: 18,
                                 child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: Colors.white))
-                            : const Text('Log in',
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Log in',
                                 style: TextStyle(
-                                    fontSize: 16, fontWeight: FontWeight.w700)),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                       ),
                       const SizedBox(height: 16),
                       Center(
                         child: TextButton(
                           onPressed: () {},
-                          child: const Text('Forgot password?',
-                              style: TextStyle(color: _fbBlue, fontSize: 14)),
+                          child: const Text(
+                            'Forgot password?',
+                            style: TextStyle(color: _fbBlue, fontSize: 14),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -158,9 +171,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           Expanded(child: Divider()),
                           Padding(
                             padding: EdgeInsets.symmetric(horizontal: 12),
-                            child: Text('or',
-                                style: TextStyle(
-                                    color: Colors.grey, fontSize: 13)),
+                            child: Text(
+                              'or',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 13,
+                              ),
+                            ),
                           ),
                           Expanded(child: Divider()),
                         ],
@@ -173,11 +190,16 @@ class _LoginScreenState extends State<LoginScreen> {
                           side: const BorderSide(color: Color(0xFF42B72A)),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
-                        child: const Text('Create new account',
-                            style: TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.w700)),
+                        child: const Text(
+                          'Create new account',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -191,22 +213,21 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   InputDecoration _inputDeco(String hint) => InputDecoration(
-        hintText: hint,
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFDDDDDD)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFDDDDDD)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: _fbBlue, width: 2),
-        ),
-      );
+    hintText: hint,
+    filled: true,
+    fillColor: Colors.white,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: Color(0xFFDDDDDD)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: Color(0xFFDDDDDD)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: _fbBlue, width: 2),
+    ),
+  );
 }

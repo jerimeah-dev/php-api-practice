@@ -149,56 +149,54 @@ class _ProfileScreenState extends State<ProfileScreen>
                 : (user.email.isNotEmpty ? user.email.split('@')[0] : 'Profile'),
             style: const TextStyle(fontWeight: FontWeight.w700)),
       ),
-      body: RefreshIndicator(
-        color: _fbBlue,
-        onRefresh: _refreshAll,
-        child: NestedScrollView(
-          headerSliverBuilder: (ctx, _) => [
-            SliverToBoxAdapter(
-              child: Container(
-                color: Colors.white,
-                child: Column(
-                  children: [
-                    _CoverAndAvatar(
-                      user: user,
-                      isOwn: _isOwn,
-                      onSetProfilePic: _setProfilePic,
-                    ),
-                    _ProfileInfo(
-                      user: user,
-                      isOwn: _isOwn,
-                      onEdit: () => _showEditProfile(context, user),
-                    ),
-                    const SizedBox(height: 4),
-                    TabBar(
-                      controller: _tabCtrl,
-                      tabs: const [Tab(text: 'Posts'), Tab(text: 'Photos')],
-                      indicatorColor: _fbBlue,
-                      labelColor: _fbBlue,
-                      unselectedLabelColor: _fbGray,
-                      labelStyle: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ],
-                ),
+      body: NestedScrollView(
+        headerSliverBuilder: (ctx, _) => [
+          SliverToBoxAdapter(
+            child: Container(
+              color: Colors.white,
+              child: Column(
+                children: [
+                  _CoverAndAvatar(
+                    user: user,
+                    isOwn: _isOwn,
+                    onSetProfilePic: _setProfilePic,
+                  ),
+                  _ProfileInfo(
+                    user: user,
+                    isOwn: _isOwn,
+                    onEdit: () => _showEditProfile(context, user),
+                  ),
+                  const SizedBox(height: 4),
+                  TabBar(
+                    controller: _tabCtrl,
+                    tabs: const [Tab(text: 'Posts'), Tab(text: 'Photos')],
+                    indicatorColor: _fbBlue,
+                    labelColor: _fbBlue,
+                    unselectedLabelColor: _fbGray,
+                    labelStyle: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
               ),
             ),
-          ],
-          body: TabBarView(
-            controller: _tabCtrl,
-            children: [
-              _PostsTab(
-                postIds: _postIds,
-                loading: _loadingPosts,
-                hasMore: _hasMore,
-                onLoadMore: _loadPosts,
-              ),
-              _PhotosTab(
-                images: user.profileImages,
-                isOwn: _isOwn,
-                onSetProfilePic: _setProfilePic,
-              ),
-            ],
           ),
+        ],
+        body: TabBarView(
+          controller: _tabCtrl,
+          children: [
+            _PostsTab(
+              postIds: _postIds,
+              loading: _loadingPosts,
+              hasMore: _hasMore,
+              onLoadMore: _loadPosts,
+              onRefresh: _refreshAll,
+            ),
+            _PhotosTab(
+              images: user.profileImages,
+              isOwn: _isOwn,
+              onSetProfilePic: _setProfilePic,
+              onRefresh: _refreshAll,
+            ),
+          ],
         ),
       ),
     );
@@ -360,39 +358,70 @@ class _PostsTab extends StatelessWidget {
     required this.loading,
     required this.hasMore,
     required this.onLoadMore,
+    required this.onRefresh,
   });
 
   final List<String> postIds;
   final bool loading;
   final bool hasMore;
   final VoidCallback onLoadMore;
+  final Future<void> Function() onRefresh;
 
   @override
   Widget build(BuildContext context) {
     if (loading && postIds.isEmpty) {
-      return const Center(child: CircularProgressIndicator(color: _fbBlue));
+      return RefreshIndicator(
+        color: _fbBlue,
+        onRefresh: onRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(
+              height: 200,
+              child: Center(child: CircularProgressIndicator(color: _fbBlue)),
+            ),
+          ],
+        ),
+      );
     }
     if (postIds.isEmpty) {
-      return const Center(
-          child: Text('No posts yet',
-              style: TextStyle(color: _fbGray, fontSize: 15)));
+      return RefreshIndicator(
+        color: _fbBlue,
+        onRefresh: onRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(
+              height: 200,
+              child: Center(
+                child: Text('No posts yet',
+                    style: TextStyle(color: _fbGray, fontSize: 15)),
+              ),
+            ),
+          ],
+        ),
+      );
     }
-    return NotificationListener<ScrollNotification>(
-      onNotification: (n) {
-        if (n.metrics.pixels >= n.metrics.maxScrollExtent * 0.8) onLoadMore();
-        return false;
-      },
-      child: ListView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        itemCount: postIds.length + (hasMore ? 1 : 0),
-        itemBuilder: (context, i) {
-          if (i == postIds.length) {
-            return const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(child: CircularProgressIndicator(color: _fbBlue)));
-          }
-          return _ProfilePostCard(postId: postIds[i]);
+    return RefreshIndicator(
+      color: _fbBlue,
+      onRefresh: onRefresh,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (n) {
+          if (n.metrics.pixels >= n.metrics.maxScrollExtent * 0.8) onLoadMore();
+          return false;
         },
+        child: ListView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
+          itemCount: postIds.length + (hasMore ? 1 : 0),
+          itemBuilder: (context, i) {
+            if (i == postIds.length) {
+              return const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(child: CircularProgressIndicator(color: _fbBlue)));
+            }
+            return _ProfilePostCard(postId: postIds[i]);
+          },
+        ),
       ),
     );
   }
@@ -489,20 +518,39 @@ class _PhotosTab extends StatelessWidget {
     required this.images,
     required this.isOwn,
     required this.onSetProfilePic,
+    required this.onRefresh,
   });
 
   final List<ProfileImageModel> images;
   final bool isOwn;
   final Future<void> Function(int index) onSetProfilePic;
+  final Future<void> Function() onRefresh;
 
   @override
   Widget build(BuildContext context) {
     if (images.isEmpty) {
-      return const Center(
-          child: Text('No photos yet',
-              style: TextStyle(color: _fbGray, fontSize: 15)));
+      return RefreshIndicator(
+        color: _fbBlue,
+        onRefresh: onRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(
+              height: 200,
+              child: Center(
+                child: Text('No photos yet',
+                    style: TextStyle(color: _fbGray, fontSize: 15)),
+              ),
+            ),
+          ],
+        ),
+      );
     }
-    return GridView.builder(
+    return RefreshIndicator(
+      color: _fbBlue,
+      onRefresh: onRefresh,
+      child: GridView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(2),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
@@ -542,6 +590,7 @@ class _PhotosTab extends StatelessWidget {
           ),
         );
       },
+    ),
     );
   }
 

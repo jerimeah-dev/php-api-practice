@@ -59,7 +59,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (result) {
       context.go(HomeScreen.routeName);
     } else {
-      setState(() => _error = 'Registration failed. Email may already be taken.');
+      setState(
+        () => _error = 'Registration failed. Email may already be taken.',
+      );
     }
   }
 
@@ -71,12 +73,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF050505),
         elevation: 0,
-        title: const Text('facebook',
-            style: TextStyle(
-                color: _fbBlue,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                letterSpacing: -0.5)),
+        title: const Text(
+          'fakebook',
+          style: TextStyle(
+            color: _fbBlue,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            letterSpacing: -0.5,
+          ),
+        ),
         centerTitle: true,
       ),
       body: SafeArea(
@@ -88,9 +93,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
               const Text(
                 'Create a new account',
                 style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF050505)),
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF050505),
+                ),
               ),
               const SizedBox(height: 4),
               const Text(
@@ -130,13 +136,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 : Icons.visibility_off_outlined,
                             color: Colors.grey,
                           ),
-                          onPressed: () =>
-                              setState(() => _obscure = !_obscure),
+                          onPressed: () => setState(() => _obscure = !_obscure),
                         ),
                       ),
-                      validator: (v) => v == null || v.length < 6
-                          ? 'Min 6 characters'
-                          : null,
+                      validator: (v) =>
+                          v == null || v.length < 6 ? 'Min 6 characters' : null,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -155,9 +159,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: Colors.red.shade200),
                         ),
-                        child: Text(_error!,
-                            style: const TextStyle(
-                                color: Colors.red, fontSize: 13)),
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(
+                            color: Colors.red,
+                            fontSize: 13,
+                          ),
+                        ),
                       ),
                     ],
                     const SizedBox(height: 20),
@@ -167,25 +175,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         backgroundColor: const Color(0xFF42B72A),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                       child: _loading
                           ? const SizedBox(
                               height: 18,
                               width: 18,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
-                          : const Text('Sign Up',
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text(
+                              'Sign Up',
                               style: TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.w700)),
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                     ),
                     const SizedBox(height: 16),
                     Center(
                       child: TextButton(
                         onPressed: () => context.pop(),
-                        child: const Text('Already have an account?',
-                            style:
-                                TextStyle(color: _fbBlue, fontSize: 14)),
+                        child: const Text(
+                          'Already have an account?',
+                          style: TextStyle(color: _fbBlue, fontSize: 14),
+                        ),
                       ),
                     ),
                   ],
@@ -199,23 +216,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   InputDecoration _inputDeco(String hint) => InputDecoration(
-        hintText: hint,
-        hintStyle: const TextStyle(color: Color(0xFF65676B)),
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFDDDDDD)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFDDDDDD)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: _fbBlue, width: 2),
-        ),
-      );
+    hintText: hint,
+    hintStyle: const TextStyle(color: Color(0xFF65676B)),
+    filled: true,
+    fillColor: Colors.white,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: Color(0xFFDDDDDD)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: Color(0xFFDDDDDD)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: _fbBlue, width: 2),
+    ),
+  );
 }

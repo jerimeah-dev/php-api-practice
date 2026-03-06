@@ -340,6 +340,8 @@ class _CommentsSection extends StatelessWidget {
       builder: (context, data, _) {
         final (comments, loading, hasMore) = data;
         final topLevel = comments.where((c) => c.parentId == null).toList();
+        final replyCount = comments.length - topLevel.length;
+        debugPrint('[CommentsSection] topLevel: ${topLevel.length}, replies: $replyCount, hasMore: $hasMore');
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -367,11 +369,16 @@ class _CommentsSection extends StatelessWidget {
                 ),
               )
             else
-              ...topLevel.map((c) => _CommentTile(
-                    comment: c,
-                    replies: comments.where((r) => r.parentId == c.id).toList(),
-                    postId: postId,
-                  )),
+              ...topLevel.map((c) {
+                final replies = comments.where((r) => r.parentId == c.id).toList();
+                debugPrint('[CommentsSection] comment ${c.id}: ${replies.length} replies');
+                return _CommentTile(
+                  comment: c,
+                  replies: replies,
+                  postId: postId,
+                  hasMore: hasMore,
+                );
+              }),
             if (hasMore || (loading && comments.isNotEmpty))
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -398,10 +405,12 @@ class _CommentTile extends StatefulWidget {
   const _CommentTile(
       {required this.comment,
       required this.replies,
-      required this.postId});
+      required this.postId,
+      required this.hasMore});
   final CommentModel comment;
   final List<CommentModel> replies;
   final String postId;
+  final bool hasMore;
 
   @override
   State<_CommentTile> createState() => _CommentTileState();
@@ -432,6 +441,20 @@ class _CommentTileState extends State<_CommentTile> {
               padding: const EdgeInsets.only(left: 44),
               child: _CommentRow(comment: r),
             )),
+        if (widget.hasMore && widget.replies.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 56, bottom: 4),
+            child: GestureDetector(
+              onTap: () => CommentService.instance.loadMore(widget.postId),
+              child: const Text(
+                'Load more replies',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: _fbBlue),
+              ),
+            ),
+          ),
         const Divider(height: 1, indent: 12, endIndent: 12),
       ],
     );

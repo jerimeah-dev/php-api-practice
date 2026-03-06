@@ -25,14 +25,18 @@ class CommentState extends ChangeNotifier {
   void setComments(List<CommentModel> comments, {required bool hasMore}) {
     _comments = comments;
     _hasMore  = hasMore;
-    debugPrint('[CommentState] comments: ${_comments.length} (hasMore: $_hasMore)');
+    final replies  = _comments.where((c) => c.parentId != null).length;
+    final topLevel = _comments.length - replies;
+    debugPrint('[CommentState] set: ${_comments.length} total (topLevel: $topLevel, replies: $replies, hasMore: $_hasMore)');
     notifyListeners();
   }
 
   void appendComments(List<CommentModel> page, {required bool hasMore}) {
     _comments = [..._comments, ...page];
     _hasMore  = hasMore;
-    debugPrint('[CommentState] comments: ${_comments.length} (hasMore: $_hasMore)');
+    final replies  = _comments.where((c) => c.parentId != null).length;
+    final topLevel = _comments.length - replies;
+    debugPrint('[CommentState] append: ${_comments.length} total (topLevel: $topLevel, replies: $replies, hasMore: $_hasMore)');
     notifyListeners();
   }
 

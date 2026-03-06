@@ -17,6 +17,10 @@ class CommentService {
     _state.clearComments();
     _state.setLoading(true);
     await _fetchPage(postId: postId, offset: 0, replace: true);
+    // Auto-load one more page so replies split across pages are visible immediately
+    if (_state.hasMore) {
+      await _fetchPage(postId: postId, offset: _state.comments.length, replace: false);
+    }
     _state.setLoading(false);
   }
 

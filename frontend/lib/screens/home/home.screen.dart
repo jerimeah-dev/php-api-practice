@@ -82,8 +82,11 @@ class _HomeScreenState extends State<HomeScreen> {
 // ─── FB-style AppBar ──────────────────────────────────────────────────────────
 
 class _FbAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const _FbAppBar(
-      {required this.userId, required this.name, required this.avatarUrl});
+  const _FbAppBar({
+    required this.userId,
+    required this.name,
+    required this.avatarUrl,
+  });
 
   final String userId;
   final String name;
@@ -104,7 +107,7 @@ class _FbAppBar extends StatelessWidget implements PreferredSizeWidget {
             children: [
               const SizedBox(width: 16),
               const Text(
-                'facebook',
+                'fakebook',
                 style: TextStyle(
                   color: _fbBlue,
                   fontSize: 26,
@@ -120,7 +123,10 @@ class _FbAppBar extends StatelessWidget implements PreferredSizeWidget {
               GestureDetector(
                 onTap: () => ProfileScreen.push(context, userId),
                 child: PostAuthorAvatar(
-                    name: name, avatarUrl: avatarUrl, size: 36),
+                  name: name,
+                  avatarUrl: avatarUrl,
+                  size: 36,
+                ),
               ),
               const SizedBox(width: 8),
               _CircleBtn(
@@ -199,7 +205,7 @@ class _PostFeed extends StatelessWidget {
           child: ListView.builder(
             controller: scrollCtrl,
             physics: const AlwaysScrollableScrollPhysics(),
-            itemCount: 1 + (count == 0 ? 1 : count) + (hasMore ? 1 : 0),
+            itemCount: 1 + (count == 0 ? 1 : count + (hasMore ? 1 : 0)),
             itemBuilder: (context, i) {
               if (i == 0) {
                 return _CreatePostCard(name: name, avatarUrl: avatarUrl);
@@ -209,7 +215,9 @@ class _PostFeed extends StatelessWidget {
               if (pi == count) {
                 return const Padding(
                   padding: EdgeInsets.all(20),
-                  child: Center(child: CircularProgressIndicator(color: _fbBlue)),
+                  child: Center(
+                    child: CircularProgressIndicator(color: _fbBlue),
+                  ),
                 );
               }
               return _PostCard(
@@ -248,7 +256,10 @@ class _CreatePostCard extends StatelessWidget {
                 child: GestureDetector(
                   onTap: () => PostFormScreen.pushCreate(context),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
                       border: Border.all(color: const Color(0xFFCDD1D5)),
                       borderRadius: BorderRadius.circular(20),
@@ -293,11 +304,12 @@ class _CreatePostCard extends StatelessWidget {
 }
 
 class _QuickAction extends StatelessWidget {
-  const _QuickAction(
-      {required this.icon,
-      required this.color,
-      required this.label,
-      required this.onTap});
+  const _QuickAction({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.onTap,
+  });
 
   final IconData icon;
   final Color color;
@@ -310,12 +322,17 @@ class _QuickAction extends StatelessWidget {
       child: TextButton.icon(
         onPressed: onTap,
         icon: Icon(icon, color: color, size: 20),
-        label: Text(label,
-            style: const TextStyle(
-                color: Color(0xFF050505),
-                fontSize: 13,
-                fontWeight: FontWeight.w600)),
-        style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 6)),
+        label: Text(
+          label,
+          style: const TextStyle(
+            color: Color(0xFF050505),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+        ),
       ),
     );
   }
@@ -333,14 +350,19 @@ class _EmptyFeed extends StatelessWidget {
         children: [
           Icon(Icons.article_outlined, size: 56, color: Colors.grey[300]),
           const SizedBox(height: 12),
-          Text('No posts yet',
-              style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey[500],
-                  fontWeight: FontWeight.w600)),
+          Text(
+            'No posts yet',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey[500],
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 4),
-          Text('Be the first to share something!',
-              style: TextStyle(fontSize: 13, color: Colors.grey[400])),
+          Text(
+            'Be the first to share something!',
+            style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+          ),
         ],
       ),
     );
@@ -359,9 +381,9 @@ class _PostCard extends StatelessWidget {
     'Like': '👍',
     'Love': '❤️',
     'Haha': '😂',
-    'Wow':  '😮',
-    'Sad':  '😢',
-    'Angry':'😡',
+    'Wow': '😮',
+    'Sad': '😢',
+    'Angry': '😡',
   };
   static const _emojiOrder = ['Like', 'Love', 'Haha', 'Wow', 'Sad', 'Angry'];
 
@@ -370,9 +392,9 @@ class _PostCard extends StatelessWidget {
     // Selector scoped to this post's ID — only this tile rebuilds on reaction
     return Selector<PostState, PostModel?>(
       selector: (_, s) => s.posts.cast<PostModel?>().firstWhere(
-            (p) => p?.id == postId,
-            orElse: () => null,
-          ),
+        (p) => p?.id == postId,
+        orElse: () => null,
+      ),
       builder: (context, post, _) {
         if (post == null) return const SizedBox.shrink();
         return _buildCard(context, post);
@@ -415,9 +437,10 @@ class _PostCard extends StatelessWidget {
           GestureDetector(
             onTap: () => ProfileScreen.push(context, post.userId),
             child: PostAuthorAvatar(
-                name: post.authorName,
-                avatarUrl: post.authorAvatarUrl,
-                size: 42),
+              name: post.authorName,
+              avatarUrl: post.authorAvatarUrl,
+              size: 42,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -430,14 +453,17 @@ class _PostCard extends StatelessWidget {
                   Text(
                     post.authorName.isNotEmpty ? post.authorName : 'Anonymous',
                     style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14.5,
-                        color: Color(0xFF050505)),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14.5,
+                      color: Color(0xFF050505),
+                    ),
                   ),
                   Row(
                     children: [
-                      Text(_formatDate(post.createdAt),
-                          style: const TextStyle(color: _fbGray, fontSize: 12)),
+                      Text(
+                        _formatDate(post.createdAt),
+                        style: const TextStyle(color: _fbGray, fontSize: 12),
+                      ),
                       const SizedBox(width: 3),
                       const Icon(Icons.public, size: 12, color: _fbGray),
                     ],
@@ -449,7 +475,11 @@ class _PostCard extends StatelessWidget {
           // Owner-only three-dot menu with Edit/Delete (Update 4)
           if (isOwn)
             PopupMenuButton<String>(
-              icon: const Icon(Icons.more_horiz, size: 22, color: Color(0xFF050505)),
+              icon: const Icon(
+                Icons.more_horiz,
+                size: 22,
+                color: Color(0xFF050505),
+              ),
               padding: const EdgeInsets.all(4),
               onSelected: (action) => _handleMenu(context, action, post),
               itemBuilder: (_) => const [
@@ -506,9 +536,10 @@ class _PostCard extends StatelessWidget {
       child: Text(
         post.title,
         style: const TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF050505)),
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF050505),
+        ),
       ),
     );
   }
@@ -521,7 +552,10 @@ class _PostCard extends StatelessWidget {
         child: Text(
           post.content,
           style: const TextStyle(
-              fontSize: 15, color: Color(0xFF050505), height: 1.45),
+            fontSize: 15,
+            color: Color(0xFF050505),
+            height: 1.45,
+          ),
           maxLines: 5,
           overflow: TextOverflow.ellipsis,
         ),
@@ -541,11 +575,13 @@ class _PostCard extends StatelessWidget {
     final total = post.reactionCounts.values.fold(0, (s, v) => s + v);
     if (total == 0) return const SizedBox(height: 4);
 
-    final topTypes = _emojiOrder
-        .where((t) => (post.reactionCounts[t] ?? 0) > 0)
-        .toList()
-      ..sort((a, b) =>
-          (post.reactionCounts[b] ?? 0).compareTo(post.reactionCounts[a] ?? 0));
+    final topTypes =
+        _emojiOrder.where((t) => (post.reactionCounts[t] ?? 0) > 0).toList()
+          ..sort(
+            (a, b) => (post.reactionCounts[b] ?? 0).compareTo(
+              post.reactionCounts[a] ?? 0,
+            ),
+          );
     final shown = topTypes.take(3).toList();
 
     return Padding(
@@ -566,12 +602,14 @@ class _PostCard extends StatelessWidget {
                       shape: BoxShape.circle,
                       color: Colors.white,
                       boxShadow: [
-                        BoxShadow(blurRadius: 1, color: Color(0x22000000))
+                        BoxShadow(blurRadius: 1, color: Color(0x22000000)),
                       ],
                     ),
                     alignment: Alignment.center,
-                    child: Text(_emojiMap[e.value]!,
-                        style: const TextStyle(fontSize: 11)),
+                    child: Text(
+                      _emojiMap[e.value]!,
+                      style: const TextStyle(fontSize: 11),
+                    ),
                   ),
                 );
               }).toList(),
