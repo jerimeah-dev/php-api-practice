@@ -34,8 +34,12 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => PostService.instance.loadFeed());
+    // Only load on first visit; use cached data on revisit (Update 5)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (PostState.instance.posts.isEmpty) {
+        PostService.instance.loadFeed();
+      }
+    });
     _scrollCtrl.addListener(_onScroll);
   }
 
@@ -67,6 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
             scrollCtrl: _scrollCtrl,
             name: name,
             avatarUrl: avatarUrl,
+            currentUserId: id,
           ),
         );
       },
@@ -164,22 +169,29 @@ class _PostFeed extends StatelessWidget {
     required this.scrollCtrl,
     required this.name,
     required this.avatarUrl,
+    required this.currentUserId,
   });
 
   final ScrollController scrollCtrl;
   final String name;
   final String avatarUrl;
+  final String currentUserId;
 
   @override
   Widget build(BuildContext context) {
-    return Selector<PostState, (List<PostModel>, bool, bool)>(
-      selector: (_, s) => (s.posts, s.loading, s.hasMore),
+    // Select only count/loading/hasMore — reactions don't change these, so
+    // the ListView doesn't rebuild for reactions. Only the individual tile does.
+    return Selector<PostState, (int, bool, bool)>(
+      selector: (_, s) => (s.posts.length, s.loading, s.hasMore),
       builder: (context, data, _) {
-        final (posts, loading, hasMore) = data;
+        final (count, loading, hasMore) = data;
 
-        if (loading && posts.isEmpty) {
+        if (loading && count == 0) {
           return const Center(child: CircularProgressIndicator(color: _fbBlue));
         }
+
+        // Read post IDs non-reactively; each _PostCard has its own Selector.
+        final posts = Provider.of<PostState>(context, listen: false).posts;
 
         return RefreshIndicator(
           color: _fbBlue,
@@ -187,20 +199,23 @@ class _PostFeed extends StatelessWidget {
           child: ListView.builder(
             controller: scrollCtrl,
             physics: const AlwaysScrollableScrollPhysics(),
-            itemCount: 1 + (posts.isEmpty ? 1 : posts.length) + (hasMore ? 1 : 0),
+            itemCount: 1 + (count == 0 ? 1 : count) + (hasMore ? 1 : 0),
             itemBuilder: (context, i) {
               if (i == 0) {
                 return _CreatePostCard(name: name, avatarUrl: avatarUrl);
               }
-              if (posts.isEmpty) return const _EmptyFeed();
+              if (count == 0) return const _EmptyFeed();
               final pi = i - 1;
-              if (pi == posts.length) {
+              if (pi == count) {
                 return const Padding(
                   padding: EdgeInsets.all(20),
                   child: Center(child: CircularProgressIndicator(color: _fbBlue)),
                 );
               }
-              return _PostCard(post: posts[pi]);
+              return _PostCard(
+                postId: posts[pi].id,
+                currentUserId: currentUserId,
+              );
             },
           ),
         );
@@ -332,12 +347,13 @@ class _EmptyFeed extends StatelessWidget {
   }
 }
 
-// ─── Post card ────────────────────────────────────────────────────────────────
+// ─── Post card — local Selector per tile (Update 3) ───────────────────────────
 
 class _PostCard extends StatelessWidget {
-  const _PostCard({required this.post});
+  const _PostCard({required this.postId, required this.currentUserId});
 
-  final PostModel post;
+  final String postId;
+  final String currentUserId;
 
   static const _emojiMap = {
     'Like': '👍',
@@ -351,16 +367,31 @@ class _PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Selector scoped to this post's ID — only this tile rebuilds on reaction
+    return Selector<PostState, PostModel?>(
+      selector: (_, s) => s.posts.cast<PostModel?>().firstWhere(
+            (p) => p?.id == postId,
+            orElse: () => null,
+          ),
+      builder: (context, post, _) {
+        if (post == null) return const SizedBox.shrink();
+        return _buildCard(context, post);
+      },
+    );
+  }
+
+  Widget _buildCard(BuildContext context, PostModel post) {
     return Container(
       color: Colors.white,
       margin: const EdgeInsets.only(bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildHeader(context),
-          _buildContent(context),
-          if (post.imageUrls.isNotEmpty) _buildImages(context),
-          _buildReactionSummary(),
+          _buildHeader(context, post),
+          if (post.title.isNotEmpty) _buildTitle(post),
+          _buildContent(context, post),
+          if (post.imageUrls.isNotEmpty) _buildImages(context, post),
+          _buildReactionSummary(post),
           const Divider(height: 1, indent: 12, endIndent: 12),
           FullReactionBar(
             targetType: 'post',
@@ -374,7 +405,8 @@ class _PostCard extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, PostModel post) {
+    final isOwn = post.userId == currentUserId;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 8, 0),
       child: Row(
@@ -414,19 +446,74 @@ class _PostCard extends StatelessWidget {
               ),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.more_horiz, size: 22),
-            color: const Color(0xFF050505),
-            padding: const EdgeInsets.all(4),
-            constraints: const BoxConstraints(),
-            onPressed: () {},
-          ),
+          // Owner-only three-dot menu with Edit/Delete (Update 4)
+          if (isOwn)
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_horiz, size: 22, color: Color(0xFF050505)),
+              padding: const EdgeInsets.all(4),
+              onSelected: (action) => _handleMenu(context, action, post),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'edit', child: Text('Edit')),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Text('Delete', style: TextStyle(color: Colors.red)),
+                ),
+              ],
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.more_horiz, size: 22),
+              color: const Color(0xFF050505),
+              padding: const EdgeInsets.all(4),
+              constraints: const BoxConstraints(),
+              onPressed: () {},
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildContent(BuildContext context) {
+  void _handleMenu(BuildContext context, String action, PostModel post) {
+    if (action == 'edit') {
+      PostFormScreen.pushEdit(context, post);
+    } else if (action == 'delete') {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Delete Post'),
+          content: const Text('Are you sure you want to delete this post?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await PostService.instance.deleteById(post.id);
+              },
+              child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  Widget _buildTitle(PostModel post) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      child: Text(
+        post.title,
+        style: const TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF050505)),
+      ),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, PostModel post) {
     return GestureDetector(
       onTap: () => PostDetailScreen.push(context, post.id),
       child: Padding(
@@ -442,7 +529,7 @@ class _PostCard extends StatelessWidget {
     );
   }
 
-  Widget _buildImages(BuildContext context) {
+  Widget _buildImages(BuildContext context, PostModel post) {
     return PostImageGrid(
       imageUrls: post.imageUrls,
       borderRadius: BorderRadius.zero,
@@ -450,7 +537,7 @@ class _PostCard extends StatelessWidget {
     );
   }
 
-  Widget _buildReactionSummary() {
+  Widget _buildReactionSummary(PostModel post) {
     final total = post.reactionCounts.values.fold(0, (s, v) => s + v);
     if (total == 0) return const SizedBox(height: 4);
 

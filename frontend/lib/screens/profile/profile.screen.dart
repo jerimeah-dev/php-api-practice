@@ -116,6 +116,15 @@ class _ProfileScreenState extends State<ProfileScreen>
     if (mounted) setState(() => _loadingPosts = false);
   }
 
+  /// Sets the photo at [index] as the profile picture via the dedicated endpoint.
+  Future<void> _setProfilePic(int index) async {
+    final user = _profileUser;
+    if (user == null || index == 0 || index >= user.profileImages.length) return;
+    final imageUrl = user.profileImages[index].url;
+    await UserService.instance.setProfilePic(imageUrl);
+    await _loadUser();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loadingUser) {
@@ -144,7 +153,11 @@ class _ProfileScreenState extends State<ProfileScreen>
             color: Colors.white,
             child: Column(
               children: [
-                _CoverAndAvatar(user: user),
+                _CoverAndAvatar(
+                  user: user,
+                  isOwn: _isOwn,
+                  onSetProfilePic: _setProfilePic,
+                ),
                 _ProfileInfo(
                   user: user,
                   isOwn: _isOwn,
@@ -175,7 +188,11 @@ class _ProfileScreenState extends State<ProfileScreen>
                   scrollCtrl: _scrollCtrl,
                   onRefresh: _resetPosts,
                 ),
-                _PhotosTab(images: user.profileImages),
+                _PhotosTab(
+                  images: user.profileImages,
+                  isOwn: _isOwn,
+                  onSetProfilePic: _setProfilePic,
+                ),
               ],
             ),
           ),
@@ -198,8 +215,15 @@ class _ProfileScreenState extends State<ProfileScreen>
 // ─── Cover photo + avatar ─────────────────────────────────────────────────────
 
 class _CoverAndAvatar extends StatelessWidget {
-  const _CoverAndAvatar({required this.user});
+  const _CoverAndAvatar({
+    required this.user,
+    required this.isOwn,
+    required this.onSetProfilePic,
+  });
+
   final UserModel user;
+  final bool isOwn;
+  final Future<void> Function(int index) onSetProfilePic;
 
   @override
   Widget build(BuildContext context) {
@@ -207,7 +231,7 @@ class _CoverAndAvatar extends StatelessWidget {
       clipBehavior: Clip.none,
       alignment: Alignment.bottomCenter,
       children: [
-        // Cover photo
+        // Cover photo (blurred avatar as cover background)
         Container(
           height: 180,
           width: double.infinity,
@@ -223,19 +247,40 @@ class _CoverAndAvatar extends StatelessWidget {
                 )
               : null,
         ),
-        // Avatar overlapping the cover bottom
+        // Avatar overlapping the cover bottom — tappable
         Positioned(
           bottom: -44,
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 4),
+          child: GestureDetector(
+            onTap: user.profileImages.isEmpty
+                ? null
+                : () => _openPhotoViewer(context, 0),
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 4),
+              ),
+              child: PostAuthorAvatar(
+                  name: user.name, avatarUrl: user.avatarUrl, size: 88),
             ),
-            child: PostAuthorAvatar(
-                name: user.name, avatarUrl: user.avatarUrl, size: 88),
           ),
         ),
       ],
+    );
+  }
+
+  void _openPhotoViewer(BuildContext context, int initialIndex) {
+    final urls = user.profileImages.map((p) => p.url).toList();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _PhotoViewer(
+          urls: urls,
+          initialIndex: initialIndex,
+          isOwn: isOwn,
+          onSetProfilePic: onSetProfilePic,
+        ),
+      ),
     );
   }
 }
@@ -245,6 +290,7 @@ class _CoverAndAvatar extends StatelessWidget {
 class _ProfileInfo extends StatelessWidget {
   const _ProfileInfo(
       {required this.user, required this.isOwn, required this.onEdit});
+
   final UserModel user;
   final bool isOwn;
   final VoidCallback onEdit;
@@ -283,7 +329,8 @@ class _ProfileInfo extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8)),
                 ),
                 child: const Text('Edit profile',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                    style:
+                        TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
               ),
             ),
         ],
@@ -330,8 +377,8 @@ class _PostsTab extends StatelessWidget {
           if (i == posts.length) {
             return const Padding(
                 padding: EdgeInsets.all(16),
-                child: Center(
-                    child: CircularProgressIndicator(color: _fbBlue)));
+                child:
+                    Center(child: CircularProgressIndicator(color: _fbBlue)));
           }
           return _ProfilePostCard(post: posts[i]);
         },
@@ -362,6 +409,14 @@ class _ProfilePostCard extends StatelessWidget {
                   Text(_formatDate(post.createdAt),
                       style: const TextStyle(fontSize: 12, color: _fbGray)),
                   const SizedBox(height: 6),
+                  if (post.title.isNotEmpty) ...[
+                    Text(post.title,
+                        style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF050505))),
+                    const SizedBox(height: 4),
+                  ],
                   Text(post.content,
                       style: const TextStyle(
                           fontSize: 15,
@@ -410,8 +465,15 @@ class _ProfilePostCard extends StatelessWidget {
 // ─── Photos tab ───────────────────────────────────────────────────────────────
 
 class _PhotosTab extends StatelessWidget {
-  const _PhotosTab({required this.images});
+  const _PhotosTab({
+    required this.images,
+    required this.isOwn,
+    required this.onSetProfilePic,
+  });
+
   final List<ProfileImageModel> images;
+  final bool isOwn;
+  final Future<void> Function(int index) onSetProfilePic;
 
   @override
   Widget build(BuildContext context) {
@@ -431,36 +493,70 @@ class _PhotosTab extends StatelessWidget {
       itemBuilder: (context, i) {
         final img = images[i];
         return GestureDetector(
-          onTap: () => _openFullscreen(context, i),
-          child: CachedNetworkImage(
-            imageUrl: img.url,
-            fit: BoxFit.cover,
-            placeholder: (_, _) => Container(color: Colors.grey[200]),
-            errorWidget: (_, _, _) => Container(
-                color: Colors.grey[200],
-                child: const Icon(Icons.broken_image, color: Colors.grey)),
+          onTap: () => _openViewer(context, i),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CachedNetworkImage(
+                imageUrl: img.url,
+                fit: BoxFit.cover,
+                placeholder: (_, _) => Container(color: Colors.grey[200]),
+                errorWidget: (_, _, _) => Container(
+                    color: Colors.grey[200],
+                    child: const Icon(Icons.broken_image, color: Colors.grey)),
+              ),
+              // Crown badge on the current profile pic (index 0)
+              if (i == 0)
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                      color: _fbBlue,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.person, color: Colors.white, size: 12),
+                  ),
+                ),
+            ],
           ),
         );
       },
     );
   }
 
-  void _openFullscreen(BuildContext context, int index) {
-    final urls = images.map((i) => i.url).toList();
+  void _openViewer(BuildContext context, int index) {
+    final urls = images.map((img) => img.url).toList();
     Navigator.push(
       context,
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (_) => _PhotoViewer(urls: urls, initialIndex: index),
+        builder: (_) => _PhotoViewer(
+          urls: urls,
+          initialIndex: index,
+          isOwn: isOwn,
+          onSetProfilePic: onSetProfilePic,
+        ),
       ),
     );
   }
 }
 
+// ─── Photo viewer (fullscreen + set as profile pic) ───────────────────────────
+
 class _PhotoViewer extends StatefulWidget {
-  const _PhotoViewer({required this.urls, required this.initialIndex});
+  const _PhotoViewer({
+    required this.urls,
+    required this.initialIndex,
+    this.isOwn = false,
+    this.onSetProfilePic,
+  });
+
   final List<String> urls;
   final int initialIndex;
+  final bool isOwn;
+  final Future<void> Function(int index)? onSetProfilePic;
 
   @override
   State<_PhotoViewer> createState() => _PhotoViewerState();
@@ -469,6 +565,7 @@ class _PhotoViewer extends StatefulWidget {
 class _PhotoViewerState extends State<_PhotoViewer> {
   late final PageController _ctrl;
   late int _current;
+  bool _setting = false;
 
   @override
   void initState() {
@@ -483,8 +580,21 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     super.dispose();
   }
 
+  Future<void> _setAsProfilePic() async {
+    if (_setting) return;
+    setState(() => _setting = true);
+    await widget.onSetProfilePic!(_current);
+    if (mounted) {
+      setState(() => _setting = false);
+      Navigator.pop(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isCurrentProfilePic = _current == 0;
+    final showSetBtn = widget.isOwn && !isCurrentProfilePic && widget.onSetProfilePic != null;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -503,12 +613,73 @@ class _PhotoViewerState extends State<_PhotoViewer> {
               fit: BoxFit.contain,
               placeholder: (_, _) => const Center(
                   child: CircularProgressIndicator(color: Colors.white)),
-              errorWidget: (_, _, _) =>
-                  Icon(Icons.broken_image_outlined, size: 64, color: Colors.grey.shade600),
+              errorWidget: (_, _, _) => Icon(Icons.broken_image_outlined,
+                  size: 64, color: Colors.grey.shade600),
             ),
           ),
         ),
       ),
+      // "Set as Profile Picture" bar shown only when viewing a non-primary photo
+      bottomNavigationBar: showSetBtn
+          ? SafeArea(
+              child: Container(
+                color: const Color(0xFF1C1C1C),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: _setting
+                    ? const Center(
+                        child: SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        ),
+                      )
+                    : GestureDetector(
+                        onTap: _setAsProfilePic,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.person_pin,
+                                color: Colors.white, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              'Set as Profile Picture',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+              ),
+            )
+          : widget.isOwn && isCurrentProfilePic
+              ? SafeArea(
+                  child: Container(
+                    color: const Color(0xFF1C1C1C),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.person_pin,
+                            color: _fbBlue, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'Current Profile Picture',
+                          style: TextStyle(
+                            color: _fbBlue,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : null,
     );
   }
 }
@@ -553,6 +724,15 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     });
   }
 
+  /// Promotes image at [i] to position 0 (making it the new profile picture).
+  void _setAsPrimary(int i) {
+    if (i == 0) return;
+    setState(() {
+      final img = _images.removeAt(i);
+      _images.insert(0, img);
+    });
+  }
+
   Future<void> _save() async {
     setState(() => _loading = true);
     Navigator.pop(context);
@@ -576,6 +756,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header
           Row(
             children: [
               const Text('Edit Profile',
@@ -592,12 +773,14 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             ],
           ),
           const SizedBox(height: 16),
+
+          // Name
           TextField(
             controller: _nameCtrl,
             decoration: InputDecoration(
               labelText: 'Name',
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8)),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
                 borderSide: const BorderSide(color: _fbBlue, width: 2),
@@ -605,10 +788,21 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          const Text('Profile Photos',
-              style: TextStyle(
-                  fontWeight: FontWeight.w700, color: Color(0xFF050505))),
+
+          // Photos section header
+          Row(
+            children: [
+              const Text('Profile Photos',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700, color: Color(0xFF050505))),
+              const SizedBox(width: 8),
+              Text('(tap ★ to set as profile picture)',
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+            ],
+          ),
           const SizedBox(height: 8),
+
+          // Add URL row
           Row(
             children: [
               Expanded(
@@ -632,38 +826,86 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             ],
           ),
           const SizedBox(height: 8),
+
+          // Images list
           ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 200),
+            constraints: const BoxConstraints(maxHeight: 220),
             child: ListView.builder(
               shrinkWrap: true,
               itemCount: _images.length,
               itemBuilder: (context, i) {
                 final img = _images[i];
+                final isProfilePic = i == 0;
                 return ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(4),
                     child: SizedBox(
-                      width: 40,
-                      height: 40,
+                      width: 44,
+                      height: 44,
                       child: CachedNetworkImage(
                         imageUrl: img.url,
                         fit: BoxFit.cover,
                         placeholder: (_, _) =>
                             Container(color: Colors.grey[200]),
-                        errorWidget: (_, _, _) =>
-                            const Icon(Icons.broken_image, color: Colors.grey),
+                        errorWidget: (_, _, _) => const Icon(
+                            Icons.broken_image,
+                            color: Colors.grey),
                       ),
                     ),
                   ),
-                  title: Text(img.url,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12)),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline,
-                        color: Colors.red, size: 18),
-                    onPressed: () => setState(() => _images.removeAt(i)),
+                  title: Row(
+                    children: [
+                      if (isProfilePic)
+                        Container(
+                          margin: const EdgeInsets.only(right: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: _fbBlue,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text('Profile Pic',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700)),
+                        ),
+                      Expanded(
+                        child: Text(img.url,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Star button: filled = current profile pic, outline = tap to set
+                      IconButton(
+                        tooltip: isProfilePic
+                            ? 'Current profile picture'
+                            : 'Set as profile picture',
+                        icon: Icon(
+                          isProfilePic ? Icons.star : Icons.star_outline,
+                          color: isProfilePic ? Colors.amber : Colors.grey,
+                          size: 20,
+                        ),
+                        onPressed: isProfilePic ? null : () => _setAsPrimary(i),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                      const SizedBox(width: 4),
+                      // Delete button
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            color: Colors.red, size: 20),
+                        onPressed: () => setState(() => _images.removeAt(i)),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
                   ),
                 );
               },

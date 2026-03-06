@@ -32,12 +32,14 @@ class PostRepository {
   Future<Map<String, dynamic>> create({
     required String userId,
     required String content,
+    String? title,
     List<String>? imageUrls,
   }) =>
       ApiClient.instance.post('/api.php', {
         'method': 'post.create',
         'userId': userId,
         'content': content,
+        if (title != null && title.isNotEmpty) 'title': title,
         if (imageUrls != null) 'imageUrls': jsonEncode(imageUrls),
       });
 
@@ -45,12 +47,14 @@ class PostRepository {
     required String id,
     required String content,
     required List<String> imageUrls,
+    String? title,
   }) =>
       ApiClient.instance.post('/api.php', {
         'method': 'post.updateById',
         'id': id,
         'content': content,
         'imageUrls': jsonEncode(imageUrls),
+        if (title != null) 'title': title,
       });
 
   Future<Map<String, dynamic>> deleteById(String id) =>

@@ -20,6 +20,7 @@ class PostFormScreen extends StatefulWidget {
 
 class _PostFormScreenState extends State<PostFormScreen> {
   final _formKey     = GlobalKey<FormState>();
+  late final TextEditingController _titleCtrl;
   late final TextEditingController _contentCtrl;
   final _urlCtrl     = TextEditingController();
   late List<String> _imageUrls;
@@ -30,12 +31,14 @@ class _PostFormScreenState extends State<PostFormScreen> {
   @override
   void initState() {
     super.initState();
+    _titleCtrl   = TextEditingController(text: widget.post?.title ?? '');
     _contentCtrl = TextEditingController(text: widget.post?.content ?? '');
     _imageUrls   = List<String>.from(widget.post?.imageUrls ?? []);
   }
 
   @override
   void dispose() {
+    _titleCtrl.dispose();
     _contentCtrl.dispose();
     _urlCtrl.dispose();
     super.dispose();
@@ -62,11 +65,13 @@ class _PostFormScreenState extends State<PostFormScreen> {
     if (_isEdit) {
       result = await PostService.instance.updateById(
         id:        widget.post!.id,
+        title:     _titleCtrl.text.trim(),
         content:   _contentCtrl.text.trim(),
         imageUrls: _imageUrls,
       );
     } else {
       result = await PostService.instance.create(
+        title:     _titleCtrl.text.trim(),
         content:   _contentCtrl.text.trim(),
         imageUrls: _imageUrls,
       );
@@ -96,6 +101,18 @@ class _PostFormScreenState extends State<PostFormScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              TextFormField(
+                controller: _titleCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Title (optional)',
+                  hintText: 'Give your post a title...',
+                  border: OutlineInputBorder(),
+                ),
+                textCapitalization: TextCapitalization.sentences,
+                maxLength: 200,
+              ),
+
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _contentCtrl,
                 decoration: const InputDecoration(

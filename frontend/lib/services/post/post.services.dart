@@ -57,8 +57,8 @@ class PostService {
         authorId: authorId,
       );
 
-  Future<PostModel?> create({required String content, List<String>? imageUrls}) async {
-    final res  = await _repo.create(userId: _userState.id, content: content, imageUrls: imageUrls);
+  Future<PostModel?> create({required String content, String? title, List<String>? imageUrls}) async {
+    final res  = await _repo.create(userId: _userState.id, content: content, title: title, imageUrls: imageUrls);
     final post = _parsePostRes(res);
     if (post != null) _state.addPost(post);
     return post;
@@ -68,8 +68,9 @@ class PostService {
     required String id,
     required String content,
     required List<String> imageUrls,
+    String? title,
   }) async {
-    final res  = await _repo.updateById(id: id, content: content, imageUrls: imageUrls);
+    final res  = await _repo.updateById(id: id, content: content, imageUrls: imageUrls, title: title);
     final post = _parsePostRes(res);
     if (post != null) _state.updatePost(post);
     return post;

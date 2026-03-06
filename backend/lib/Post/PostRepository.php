@@ -17,6 +17,7 @@ class PostRepository extends Repository
         $this->db->exec("CREATE TABLE IF NOT EXISTS posts (
             id        TEXT    PRIMARY KEY,
             userId    TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            title     TEXT    NOT NULL DEFAULT '',
             content   TEXT    NOT NULL,
             imageUrls TEXT    NOT NULL DEFAULT '[]',
             createdAt INTEGER NOT NULL,
@@ -24,14 +25,15 @@ class PostRepository extends Repository
         )");
         try { $this->db->exec("ALTER TABLE posts ADD COLUMN imageUrls TEXT NOT NULL DEFAULT '[]'"); } catch (\Throwable) {}
         try { $this->db->exec("ALTER TABLE posts ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0"); } catch (\Throwable) {}
+        try { $this->db->exec("ALTER TABLE posts ADD COLUMN title TEXT NOT NULL DEFAULT ''"); } catch (\Throwable) {}
     }
 
     public function create(PostEntity $post): bool
     {
         return (bool) $this->execute(
-            "INSERT INTO posts (id, userId, content, imageUrls, createdAt, updatedAt)
-             VALUES (?, ?, ?, ?, ?, ?)",
-            [$post->id, $post->userId, $post->content,
+            "INSERT INTO posts (id, userId, title, content, imageUrls, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [$post->id, $post->userId, $post->title, $post->content,
              json_encode($post->imageUrls), $post->createdAt, $post->updatedAt]
         );
     }
@@ -79,8 +81,8 @@ class PostRepository extends Repository
     public function updateById(PostEntity $post): bool
     {
         return (bool) $this->execute(
-            "UPDATE posts SET content = ?, imageUrls = ?, updatedAt = ? WHERE id = ?",
-            [$post->content, json_encode($post->imageUrls), $post->updatedAt, $post->id]
+            "UPDATE posts SET title = ?, content = ?, imageUrls = ?, updatedAt = ? WHERE id = ?",
+            [$post->title, $post->content, json_encode($post->imageUrls), $post->updatedAt, $post->id]
         );
     }
 

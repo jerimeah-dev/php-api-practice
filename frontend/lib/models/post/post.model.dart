@@ -3,6 +3,7 @@ class PostModel {
   final String userId;
   final String authorName;
   final String authorAvatarUrl;
+  final String title;
   final String content;
   final List<String> imageUrls;
   final Map<String, int> reactionCounts;
@@ -15,6 +16,7 @@ class PostModel {
     required this.userId,
     required this.authorName,
     required this.authorAvatarUrl,
+    required this.title,
     required this.content,
     required this.imageUrls,
     required this.reactionCounts,
@@ -28,6 +30,7 @@ class PostModel {
         userId: json['userId'] ?? '',
         authorName: json['authorName'] ?? '',
         authorAvatarUrl: json['authorAvatarUrl'] ?? '',
+        title: json['title'] ?? '',
         content: json['content'] ?? '',
         imageUrls: (json['imageUrls'] as List? ?? []).cast<String>(),
         reactionCounts: Map<String, dynamic>.from(json['reactionCounts'] ?? {})
@@ -44,6 +47,7 @@ class PostModel {
         'userId': userId,
         'authorName': authorName,
         'authorAvatarUrl': authorAvatarUrl,
+        'title': title,
         'content': content,
         'imageUrls': imageUrls,
         'reactionCounts': reactionCounts,
@@ -61,6 +65,7 @@ class PostModel {
         userId: userId,
         authorName: authorName,
         authorAvatarUrl: authorAvatarUrl,
+        title: title,
         content: content,
         imageUrls: imageUrls,
         reactionCounts: reactionCounts,

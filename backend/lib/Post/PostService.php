@@ -50,6 +50,7 @@ class PostService
         if (!$userId || !$content)
             return Jsend::fail(['content' => 'userId and content are required']);
 
+        $title     = trim($input['title'] ?? '');
         $imageUrls = json_decode($input['imageUrls'] ?? '[]', true) ?? [];
 
         do { $id = bin2hex(random_bytes(8)); } while ($this->repo->existsById($id));
@@ -57,6 +58,7 @@ class PostService
         $entity            = new PostEntity();
         $entity->id        = $id;
         $entity->userId    = $userId;
+        $entity->title     = $title;
         $entity->content   = $content;
         $entity->imageUrls = $imageUrls;
         $entity->createdAt = time();
@@ -76,6 +78,7 @@ class PostService
         $entity            = new PostEntity();
         $entity->id        = $id;
         $entity->userId    = $existing['userId'];
+        $entity->title     = trim($input['title'] ?? $existing['title'] ?? '');
         $entity->content   = trim($input['content'] ?? $existing['content']);
         $entity->imageUrls = isset($input['imageUrls'])
             ? (is_string($input['imageUrls']) ? json_decode($input['imageUrls'], true) ?? [] : $input['imageUrls'])
